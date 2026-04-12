@@ -28,6 +28,7 @@ build/
 .ruff_cache/
 
 # Data — vault and index are build artifacts, not source
+.worktrees/
 vault/
 *.db
 *.db-shm
