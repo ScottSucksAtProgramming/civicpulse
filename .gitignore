@@ -30,6 +30,7 @@ build/
 # Data — vault and index are build artifacts, not source
 .worktrees/
 vault/
+!vault/.gitkeep
 *.db
 *.db-shm
 *.db-wal

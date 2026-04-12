@@ -13,6 +13,16 @@ civicpulse/
   .taskpaper
   todo.taskpaper
   .gitignore
+  .python-version
+  .env.example
+  pyproject.toml
+  src/
+    civicpulse/
+      scraper/
+      backend/
+  tests/
+  vault/
+  frontend/
   docs/
     CivicPulse_PRD.md
     CivicPulse_Resources.md
