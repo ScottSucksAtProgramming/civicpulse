@@ -1,0 +1,4 @@
+CivicPulse:
+	- Review INDEX.md and confirm it's accurate @done(2026-04-12) @added(2026-04-12)
+	- Read PRD and identify Phase 1 implementation order @done(2026-04-12) @added(2026-04-12)
+	- Set up project scaffold (backend, scraper, frontend folders) @done(2026-04-12) @added(2026-04-12)

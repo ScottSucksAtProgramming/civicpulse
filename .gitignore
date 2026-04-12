@@ -1,0 +1,47 @@
+# Claude Code local settings
+.claude/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+*.key
+secrets.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data — vault and index are build artifacts, not source
+vault/
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+*.log
+logs/
+
+# Node (if frontend tooling is added)
+node_modules/
+.next/
+dist/
+
+# Editor
+.vscode/
+*.swp
