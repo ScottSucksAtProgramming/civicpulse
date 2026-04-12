@@ -26,10 +26,12 @@ civicpulse/
   docs/
     CivicPulse_PRD.md
     CivicPulse_Resources.md
+    scraping_policy.md
     references/
       the_price_of_meaning_why_rag_knowledge_graphs_and_every_semantic_memory_will_always_fail.pdf
   plans/
     civicpulse.md
+    phase1-scaffold.md
   context/
     conventions.md
     lessons.md
