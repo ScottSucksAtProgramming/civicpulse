@@ -299,8 +299,8 @@ SEED_URLS = [
 
 ```python
 class BabylonWebsiteScraper(BaseScraper):
-    def __init__(self, **kwargs):
-        super().__init__(seed_urls=SEED_URLS, **kwargs)
+    def __init__(self, seed_urls: list[str] | None = None, **kwargs):
+        super().__init__(seed_urls=seed_urls if seed_urls is not None else SEED_URLS, **kwargs)
 
     def _infer_document_type(self, url: str) -> str:
         u = url.lower()
@@ -345,8 +345,8 @@ SEED_URLS = [
 
 ```python
 class AgendaCenterScraper(BaseScraper):
-    def __init__(self, **kwargs):
-        super().__init__(seed_urls=SEED_URLS, **kwargs)
+    def __init__(self, seed_urls: list[str] | None = None, **kwargs):
+        super().__init__(seed_urls=seed_urls if seed_urls is not None else SEED_URLS, **kwargs)
 
     def _infer_document_type(self, url: str) -> str:
         u = url.lower()
