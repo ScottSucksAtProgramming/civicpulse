@@ -13,6 +13,7 @@ Phase 1 - Knowledge Vault + Scraper Foundation:
 	- Build CLI query tool to test BM25 retrieval against vault @done(2026-04-12) @added(2026-04-12)
 	- Verify vault opens correctly as an Obsidian vault @na @added(2026-04-12)
 	- Add rate limiting and respectful crawl delays to scraper @done(2026-04-12) @added(2026-04-12)
+	- Fix PDF date extraction in AgendaCenterScraper (dates in PDF body text not caught by HTML title regex; chunks land in undated/ instead of correct year) @added(2026-04-12)
 
 Phase 2 - Core Retrieval Pipeline:
 	- Design and implement metadata filter layer (infer date range, document_type from query) @na @added(2026-04-12)
