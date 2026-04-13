@@ -1,2 +1,8 @@
-# conftest.py — enables pytest fixture discovery across all test directories.
-# Add shared fixtures here as the test suite grows.
+import sys
+from pathlib import Path
+
+# Ensure pytest can import the src-layout package without external PYTHONPATH setup.
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))

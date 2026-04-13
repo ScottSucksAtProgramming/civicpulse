@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Civic engagement AI agent for Town of Babylon, NY"
 requires-python = ">=3.13"
 dependencies = [
+    "openai>=1.0",
     "httpx>=0.27",
+    "fastapi>=0.115",
     "beautifulsoup4>=4.12",
     "lxml>=5.0",
     "pdfplumber>=0.11",
@@ -14,6 +16,12 @@ dependencies = [
     "click>=8.1",
     "python-slugify>=8.0",
     "python-dotenv>=1.0",
+    "uvicorn>=0.32",
+]
+
+[project.optional-dependencies]
+anthropic = [
+    "anthropic>=0.67",
 ]
 
 [dependency-groups]

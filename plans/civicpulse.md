@@ -36,7 +36,7 @@ The vault directory can be opened as an Obsidian vault for human inspection and 
 - [ ] SQLite FTS5 index built over vault and reflects current files
 - [ ] CLI query returns ranked chunks with source URL and document metadata
 - [ ] Scraper respects robots.txt and applies rate limiting
-- [ ] Vault is openable as an Obsidian vault with readable structure
+- [x] Vault is openable as an Obsidian vault with readable structure
 
 ---
 

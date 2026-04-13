@@ -21,7 +21,24 @@ civicpulse/
       scraper/
         sources/
       backend/
+        api/
+        providers/
+          __init__.py
+          anthropic.py
+          base.py
+          openai_compat.py
+        retrieval/
+          metadata_filter.py
+          query_pipeline.py
+          retriever.py
+          synthesizer.py
+        types.py
   tests/
+    backend/
+      test_anthropic_provider.py
+      test_metadata_filter.py
+      test_openai_provider.py
+      test_query_api.py
     scraper/
       fixtures/
   vault/
@@ -37,6 +54,8 @@ civicpulse/
     phase1-scaffold.md
     phase1-implementation.md
     pdf-date-extraction.md
+    phase2-retrieval-pipeline.md
+    multi-provider-llm.md
   context/
     conventions.md
     lessons.md
@@ -71,8 +90,8 @@ After completing a task, log any corrections, preferences, patterns, or discover
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
 
-- 2026-04-13 — `BaseScraper._extract_pdf()` joins pages with `"\n\n"`, making page boundaries unrecoverable; pass all of `content` to `_parse_date()` rather than isolating page 1. Use `dataclasses.replace()` to update `RawDocument` fields. PDF integration tests need a valid binary fixture — plain bytes cause pdfplumber to throw before reaching the code under test. Use pytest `caplog` for log-warning assertions; logger name is the subclass name.
-- 2026-04-13 — Undated/non-extractable PDFs: non-extractable (no text) are skipped entirely (parent returns None); extractable-but-undated land in `undated/` and are still indexed/retrievable by keyword — Phase 2 metadata filter should include undated chunks as lower-priority candidates rather than hard-excluding them.
-- 2026-04-12 — Subclass `__init__` must accept `seed_urls` as an optional param so `BaseScraper.scrape()` can recursively instantiate `self.__class__(seed_urls=[link])` without TypeError.
-- 2026-04-12 — Retrieval flow locked in: metadata filter → BM25 keyword search → LLM re-ranking (Haiku) → grounded response with source citation.
-- 2026-04-12 — Knowledge vault doubles as an Obsidian vault for dev-time curation; Obsidian is a dev tool only, not a runtime dependency.
+- 2026-04-13 — `create_app(vault_path)` must default to `None` and resolve from `CIVICPULSE_VAULT_PATH` env var so uvicorn `--factory` mode works without args.
+- 2026-04-13 — `MetadataFilter` requires a system prompt explaining the tool's purpose; bare user messages cause models to return text instead of calling the tool, producing a silent `LLMError` fallback to empty filter.
+- 2026-04-13 — Multi-provider LLM abstraction: `LLMProvider` protocol + `LLMError` in `backend/providers/base.py`; `tool_call()` takes `tool_name` + raw JSON Schema separately — each provider wraps into its own envelope; `AnthropicProvider` lazy-imports SDK in `__init__`; all SDK exceptions wrapped as `LLMError`.
+- 2026-04-13 — Provider startup config belongs in FastAPI lifespan: validate `CIVICPULSE_PROVIDER` and required API keys there, build one shared provider instance, and pass `CIVICPULSE_FILTER_MODEL` separately from `CIVICPULSE_MODEL` so MetadataFilter can stay cheaper without touching QueryPipeline or the route handler.
+- 2026-04-13 — Phase 2 architecture: Pydantic types in `backend/types.py`; FastAPI lifespan context manager; `MetadataFilter` uses tool-use for guaranteed JSON shape; sources attributed from input chunks via numbered references; MetadataFilter failure → empty FilterSpec fallback; Synthesizer failure → HTTP 503.
