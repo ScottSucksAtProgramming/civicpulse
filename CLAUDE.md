@@ -32,6 +32,7 @@ civicpulse/
   plans/
     civicpulse.md
     phase1-scaffold.md
+    phase1-implementation.md
   context/
     conventions.md
     lessons.md
