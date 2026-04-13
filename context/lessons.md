@@ -13,3 +13,4 @@ updated: 2026-04-12
 2026-04-12 — Knowledge vault can double as an Obsidian vault for curation and inspection during development; Obsidian is a dev tool only, not a runtime dependency.
 2026-04-12 — Retrieval flow locked in as: metadata filter → BM25 keyword search → LLM re-ranking (Haiku) → grounded response with source citation.
 2026-04-12 — Implementation plan written to plans/civicpulse.md (8 vertical-slice phases). Task tracking in todo.taskpaper (na-compatible).
+2026-04-12 — Phase 1 scraper recursion follows same-domain links at depth 1, so live verification can take several minutes before the final vault index is written and query CLI results appear.

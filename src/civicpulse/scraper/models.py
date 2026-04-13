@@ -10,7 +10,7 @@ from dataclasses import dataclass
 class RawDocument:
     """A scraped page before cleaning or chunking."""
     url: str               # canonical URL of the scraped page
-    html: str              # raw HTML response body
+    content: str           # cleaned text content (plain text with Markdown headings)
     title: str             # page/document title (extracted from <title> or <h1>)
     document_type: str     # e.g. "meeting-minutes", "agenda", "service-page"
     date: str | None       # ISO 8601 date if parseable, else None

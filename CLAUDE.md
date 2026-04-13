@@ -19,8 +19,11 @@ civicpulse/
   src/
     civicpulse/
       scraper/
+        sources/
       backend/
   tests/
+    scraper/
+      fixtures/
   vault/
   frontend/
   docs/
