@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -46,6 +47,29 @@ class AgendaCenterScraper(BaseScraper):
             date=date,
             meeting_id=meeting_id,
         )
+
+    def _extract_pdf(self, body_bytes: bytes, url: str) -> RawDocument | None:
+        doc = super()._extract_pdf(body_bytes, url)
+        if doc is None:
+            return None
+        date = self._date_from_url(url)
+        if date:
+            return replace(doc, date=date)
+        date = self._parse_date(doc.content)
+        if date:
+            return replace(doc, date=date)
+        self._logger.warning("No date found for PDF: %s", url)
+        return doc
+
+    @staticmethod
+    def _date_from_url(url: str) -> str | None:
+        match = re.search(r"(?:^|/)(\d{8})(?:$|/)", urlparse(url).path)
+        if not match:
+            return None
+        try:
+            return datetime.strptime(match.group(1), "%m%d%Y").strftime("%Y-%m-%d")
+        except ValueError:
+            return None
 
     @staticmethod
     def _parse_date(text: str) -> str | None:
