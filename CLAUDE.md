@@ -36,6 +36,7 @@ civicpulse/
     civicpulse.md
     phase1-scaffold.md
     phase1-implementation.md
+    pdf-date-extraction.md
   context/
     conventions.md
     lessons.md
@@ -69,3 +70,9 @@ After completing a task, log any corrections, preferences, patterns, or discover
 ### Recent Lessons (last 5)
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
+
+- 2026-04-13 — `BaseScraper._extract_pdf()` joins pages with `"\n\n"`, making page boundaries unrecoverable; pass all of `content` to `_parse_date()` rather than isolating page 1. Use `dataclasses.replace()` to update `RawDocument` fields. PDF integration tests need a valid binary fixture — plain bytes cause pdfplumber to throw before reaching the code under test. Use pytest `caplog` for log-warning assertions; logger name is the subclass name.
+- 2026-04-13 — Undated/non-extractable PDFs: non-extractable (no text) are skipped entirely (parent returns None); extractable-but-undated land in `undated/` and are still indexed/retrievable by keyword — Phase 2 metadata filter should include undated chunks as lower-priority candidates rather than hard-excluding them.
+- 2026-04-12 — Subclass `__init__` must accept `seed_urls` as an optional param so `BaseScraper.scrape()` can recursively instantiate `self.__class__(seed_urls=[link])` without TypeError.
+- 2026-04-12 — Retrieval flow locked in: metadata filter → BM25 keyword search → LLM re-ranking (Haiku) → grounded response with source citation.
+- 2026-04-12 — Knowledge vault doubles as an Obsidian vault for dev-time curation; Obsidian is a dev tool only, not a runtime dependency.
