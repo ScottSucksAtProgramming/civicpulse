@@ -25,7 +25,7 @@ CivicPulse answers plain-language questions about bills, ordinances, meeting age
    - LLM extracts metadata filters (date range, document type) from the question
    - BM25 keyword search (SQLite FTS5) retrieves top-N candidate chunks
    - LLM re-ranks and synthesizes a grounded response with numbered source citations
-4. **Backend API** — FastAPI app orchestrates the pipeline. Supports Anthropic and any OpenAI-compatible provider.
+4. **Backend API** — FastAPI app orchestrates the pipeline. Supports any OpenAI-compatible provider.
 5. **Frontend** — Mobile-friendly web chat, no login required. *(In development)*
 
 ## Privacy
@@ -46,55 +46,9 @@ CivicPulse is an independent tool, not affiliated with or endorsed by the Town o
 | Language | Python 3.13+ |
 | Backend | FastAPI + Uvicorn |
 | Search | SQLite FTS5 (BM25) |
-| LLM | Claude Haiku (default) / Claude Sonnet (complex) via Anthropic API |
-| Alt provider | Any OpenAI-compatible API |
+| LLM | Any OpenAI-compatible provider (Anthropic, OpenAI, local models, etc.) |
 | Scraping | httpx, BeautifulSoup4, pdfplumber |
 | Storage | Markdown files with YAML frontmatter (no vector DB) |
-
-## Setup
-
-**Requirements:** Python 3.13+, `uv`
-
-```bash
-git clone <repo>
-cd civicpulse
-
-# Install dependencies
-uv sync --extra anthropic
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your API key and settings
-```
-
-### Environment Variables
-
-```
-CIVICPULSE_PROVIDER=anthropic          # "anthropic" or "openai-compatible"
-ANTHROPIC_API_KEY=sk-ant-...           # Required for Anthropic provider
-CIVICPULSE_MODEL=claude-haiku-4-5-...  # Model for response generation
-CIVICPULSE_FILTER_MODEL=...            # Model for metadata filtering (defaults to CIVICPULSE_MODEL)
-CIVICPULSE_TOP_N=5                     # Number of chunks returned by BM25 search
-CIVICPULSE_VAULT_PATH=./vault          # Path to the knowledge vault
-```
-
-### Run the API
-
-```bash
-uvicorn civicpulse.backend.api:create_app --factory --reload
-```
-
-### Run the Scraper
-
-```bash
-civicpulse-scrape
-```
-
-### Run Tests
-
-```bash
-uv run pytest
-```
 
 ## Project Status
 
