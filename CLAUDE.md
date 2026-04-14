@@ -10,6 +10,7 @@ CivicPulse is a conversational AI agent that helps Town of Babylon, NY residents
 civicpulse/
   CLAUDE.md
   INDEX.md
+  README.md
   .taskpaper
   todo.taskpaper
   .gitignore
