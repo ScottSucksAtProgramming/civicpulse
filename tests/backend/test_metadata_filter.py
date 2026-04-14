@@ -40,15 +40,12 @@ def test_metadata_filter_extracts_document_type_from_tool_use():
     result = MetadataFilter(provider=provider).classify("Show me meeting minutes")
 
     assert result == FilterSpec(document_type="meeting-minutes", date_from=None, date_to=None)
-    assert provider.calls[0] == {
-        "messages": [
-            {"role": "system", "content": MetadataFilter._SYSTEM},
-            {"role": "user", "content": "Show me meeting minutes"},
-        ],
-        "tool_name": "classify_query",
-        "tool_schema": FilterSpec.model_json_schema(),
-        "model": FILTER_MODEL,
-    }
+    call = provider.calls[0]
+    assert call["tool_name"] == "classify_query"
+    assert call["model"] == FILTER_MODEL
+    assert call["messages"][0]["role"] == "system"
+    assert "Today's date is" in call["messages"][0]["content"]
+    assert call["messages"][1] == {"role": "user", "content": "Show me meeting minutes"}
 
 
 def test_metadata_filter_extracts_year_range_from_tool_use():
@@ -91,3 +88,45 @@ def test_metadata_filter_logs_warning_and_falls_back_on_llm_error(caplog):
 
     assert result == FilterSpec(document_type=None, date_from=None, date_to=None)
     assert "MetadataFilter failed" in caplog.text
+
+
+def test_metadata_filter_system_prompt_lists_canonical_document_types():
+    template = MetadataFilter._SYSTEM_TEMPLATE
+    for doc_type in (
+        "agenda", "meeting-minutes", "ordinance", "meeting-video",
+        "service-page", "public-meeting", "council", "clerk", "clerk-form",
+        "foil", "department-page", "planning",
+    ):
+        assert doc_type in template
+    assert "Today's date is {today}" in template
+    assert "clerk-form" in template and "license" in template
+
+
+def test_metadata_filter_extracts_ordinance_document_type_from_tool_use():
+    provider = StubProvider(
+        response={
+            "document_type": "ordinance",
+            "date_from": None,
+            "date_to": None,
+        }
+    )
+
+    result = MetadataFilter(provider=provider).classify("What is the fence height ordinance?")
+
+    assert result == FilterSpec(document_type="ordinance", date_from=None, date_to=None)
+
+
+def test_metadata_filter_extracts_meeting_video_document_type_from_tool_use():
+    provider = StubProvider(
+        response={
+            "document_type": "meeting-video",
+            "date_from": None,
+            "date_to": None,
+        }
+    )
+
+    result = MetadataFilter(provider=provider).classify(
+        "What did the town board discuss at the public hearing video?"
+    )
+
+    assert result == FilterSpec(document_type="meeting-video", date_from=None, date_to=None)

@@ -58,10 +58,16 @@ class OpenAICompatibleProvider(LLMProvider):
                 },
             )
             msg = response.choices[0].message
-            LOGGER.debug("tool_call raw response: tool_calls=%r content=%r", msg.tool_calls, getattr(msg, "content", None))
+            LOGGER.debug(
+                "tool_call raw response: tool_calls=%r content=%r",
+                msg.tool_calls,
+                getattr(msg, "content", None),
+            )
             arguments = msg.tool_calls[0].function.arguments
             return json.loads(arguments)
         except openai.APIError as exc:
             raise LLMError("OpenAI-compatible tool call failed") from exc
         except (AttributeError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(f"OpenAI-compatible tool call returned an invalid response: {exc}") from exc
+            raise LLMError(
+                f"OpenAI-compatible tool call returned an invalid response: {exc}"
+            ) from exc

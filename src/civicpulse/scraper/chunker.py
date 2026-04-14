@@ -47,6 +47,7 @@ class Chunker:
                     title=chunk_title,
                     chunk_index=i,
                     slug=f"{base_slug}-{i}",
+                    extra_metadata=dict(doc.extra_metadata),
                 )
             )
         return chunks

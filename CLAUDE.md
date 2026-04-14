@@ -20,7 +20,15 @@ civicpulse/
   src/
     civicpulse/
       scraper/
+        importers/
+          __init__.py
+          ecode360.py
         sources/
+          __init__.py
+          agenda_center.py
+          babylon_website.py
+          ecode_api.py
+          youtube.py
       backend/
         api/
         providers/
@@ -40,8 +48,15 @@ civicpulse/
       test_metadata_filter.py
       test_openai_provider.py
       test_query_api.py
+    retrieval/
+      golden_set.yaml
     scraper/
       fixtures/
+      test_babylon_website.py
+      test_cli.py
+      test_ecode360.py
+      test_ecode_api.py
+      test_youtube.py
   vault/
   frontend/
   docs/
@@ -58,6 +73,7 @@ civicpulse/
     phase2-retrieval-pipeline.md
     multi-provider-llm.md
     phase3-web-chat.md
+    phase4-expanded-corpus.md
   context/
     conventions.md
     lessons.md
@@ -92,8 +108,8 @@ After completing a task, log any corrections, preferences, patterns, or discover
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
 
+- 2026-04-14 — MetadataFilter system prompt needs: (1) today's date injected dynamically for relative date resolution; (2) per-type descriptions so LLM routes clerk-form vs clerk, meeting-video vs public-meeting correctly; (3) explicit instruction to leave dates null for vague references like "last month" — over-filtering on relative dates yields NO SOURCES.
+- 2026-04-14 — Phase 4 corpus: eCode360 via EcodeGateway API (customer BA0924, key pending from Town); interim = manual PDF + markitdown + § chunking. YouTube channel UCIYf6QoRXGaBgbqO24thUlg; youtube-transcript-api + Data API v3; 3-min/30-sec overlap windows. MetadataFilter taxonomy bug (minutes → meeting-minutes) is a prerequisite fix. New types: ordinance, meeting-video. PRD at GitHub issue #8.
+- 2026-04-14 — Phase 4 corpus implementation: keep source-specific frontmatter in `extra_metadata` on `RawDocument`/`VaultChunk`; `/243/` forms need depth 2 while the other Babylon website seeds stay at depth 1; eCode360 PDF imports infer `https://ecode360.com/{customer}#{section_number}` links, but exact section page IDs require the API-backed path.
 - 2026-04-14 — Phase 3 frontend: Alpine.js (CDN, no build step) + single `index.html` served via FastAPI `StaticFiles`. `StaticFiles` must use an absolute path from `__file__` — relative paths break under uvicorn `--factory`. Mount after API routes. Category cards are a JS data array (single source of truth). Opening message with inline cards seeded via `init()` for conversational feel. Card tap submits immediately; Enter submits, Shift+Enter newlines.
 - 2026-04-13 — `MetadataFilter` requires a system prompt explaining the tool's purpose; bare user messages cause models to return text instead of calling the tool, producing a silent `LLMError` fallback to empty filter.
-- 2026-04-13 — Multi-provider LLM abstraction: `LLMProvider` protocol + `LLMError` in `backend/providers/base.py`; `tool_call()` takes `tool_name` + raw JSON Schema separately — each provider wraps into its own envelope; `AnthropicProvider` lazy-imports SDK in `__init__`; all SDK exceptions wrapped as `LLMError`.
-- 2026-04-13 — Provider startup config belongs in FastAPI lifespan: validate `CIVICPULSE_PROVIDER` and required API keys there, build one shared provider instance, and pass `CIVICPULSE_FILTER_MODEL` separately from `CIVICPULSE_MODEL` so MetadataFilter can stay cheaper without touching QueryPipeline or the route handler.
-- 2026-04-13 — Phase 2 architecture: Pydantic types in `backend/types.py`; FastAPI lifespan context manager; `MetadataFilter` uses tool-use for guaranteed JSON shape; sources attributed from input chunks via numbered references; MetadataFilter failure → empty FilterSpec fallback; Synthesizer failure → HTTP 503.

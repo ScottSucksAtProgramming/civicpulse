@@ -24,6 +24,13 @@ class VaultWriter:
             "title": chunk.title,
             "chunk_index": chunk.chunk_index,
         }
+        metadata.update(
+            {
+                key: value
+                for key, value in chunk.extra_metadata.items()
+                if value is not None
+            }
+        )
         post = frontmatter.Post(chunk.content, **metadata)
         tmp = file_path.with_suffix(".tmp")
         tmp.write_text(frontmatter.dumps(post), encoding="utf-8")

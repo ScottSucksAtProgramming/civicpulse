@@ -32,6 +32,8 @@ build/
 .worktrees/
 vault/
 !vault/.gitkeep
+data/ecode360/
+data/youtube/
 *.db
 *.db-shm
 *.db-wal

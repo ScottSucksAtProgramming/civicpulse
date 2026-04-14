@@ -17,6 +17,9 @@ dependencies = [
     "python-slugify>=8.0",
     "python-dotenv>=1.0",
     "uvicorn>=0.32",
+    "markitdown>=0.1.5",
+    "youtube-transcript-api>=1.2.4",
+    "google-api-python-client>=2.194.0",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +41,7 @@ dev = [
 [project.scripts]
 civicpulse-scrape = "civicpulse.scraper.cli:scrape"
 civicpulse-query = "civicpulse.scraper.cli:query"
+civicpulse-import = "civicpulse.scraper.cli:import_documents"
 
 [build-system]
 requires = ["hatchling"]

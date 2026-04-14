@@ -1,5 +1,4 @@
 import httpx
-
 import respx
 
 from civicpulse.scraper.base import BaseScraper

@@ -11,6 +11,7 @@ Quick-reference for finding content in this directory. For conventions, see `con
 | `docs/references/` | Reference articles and research (e.g. the no-escape theorem PDF) | Background reading |
 | `plans/civicpulse.md` | 8-phase vertical-slice implementation plan derived from the PRD | When starting a new phase or evaluating architectural decisions |
 | `plans/phase3-web-chat.md` | 4-phase implementation plan for the Phase 3 Web Chat MVP | When building or extending the frontend |
+| `plans/phase4-expanded-corpus.md` | 6-phase implementation plan for expanded corpus: eCode360, YouTube, forms depth, taxonomy fix | When implementing Phase 4 |
 | `todo.taskpaper` | Task tracking file by milestone phase — use `na next` to see current next actions | Daily task management |
 
 ## Key Architecture References (from PRD)

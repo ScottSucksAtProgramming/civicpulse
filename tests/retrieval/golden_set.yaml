@@ -1,0 +1,54 @@
+# Manual retrieval validation:
+# 1. Populate the vault with `uv run civicpulse-scrape` and `uv run civicpulse-import --source ecode360 --path data/ecode360`.
+# 2. Run `uv run civicpulse-query "<question>" --top-n 5`.
+# 3. Confirm at least one top result matches `expected_document_type` and `source_hint`.
+
+- question: "What is the maximum fence height in a residential district?"
+  expected_document_type: "ordinance"
+  source_hint: "213-166"
+
+- question: "What does the zoning code say about accessory apartments?"
+  expected_document_type: "ordinance"
+  source_hint: "213-375"
+
+- question: "What did the town board discuss about waterfront rezoning?"
+  expected_document_type: "meeting-video"
+  source_hint: "waterfront rezoning"
+
+- question: "Was there a public hearing about zoning changes?"
+  expected_document_type: "public-meeting"
+  source_hint: "public hearing"
+  # meeting-video is also a valid top result for this query
+
+- question: "What happened at last month's town board meeting?"
+  expected_document_type: "meeting-minutes"
+  source_hint: "Town Board Meeting Minutes"
+
+- question: "When did the board approve the budget resolution?"
+  expected_document_type: "meeting-minutes"
+  source_hint: "resolution"
+
+- question: "How do I apply for a dog license?"
+  expected_document_type: "clerk-form"
+  source_hint: "dog license"
+
+- question: "What paperwork is required for a marriage license?"
+  expected_document_type: "clerk-form"
+  source_hint: "marriage"
+
+- question: "When is the next town board meeting?"
+  expected_document_type: "agenda"
+  source_hint: "Town Board"
+
+- question: "What is on the agenda for the planning board?"
+  expected_document_type: "planning"
+  source_hint: "Planning Board"
+  # agenda is also a valid result (AgendaCenter planning board agendas)
+
+- question: "How do I file a FOIL request with the town?"
+  expected_document_type: "foil"
+  source_hint: "Freedom of Information Law"
+
+- question: "Where can I find recycling pickup information?"
+  expected_document_type: "service-page"
+  source_hint: "recycling"

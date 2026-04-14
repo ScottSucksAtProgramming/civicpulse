@@ -41,15 +41,15 @@ Phase 3 - Web Chat MVP:
 	- Deploy to staging environment @added(2026-04-12)
 
 Phase 4 - Expanded Corpus:
-	- Review eCode360 robots.txt and access constraints @na @added(2026-04-12)
-	- Build eCode360 scraper (ordinances and zoning code) @added(2026-04-12)
-	- Set up YouTube Data API credentials @added(2026-04-12)
-	- Build YouTube caption scraper (API only, no direct video scraping) @added(2026-04-12)
-	- Build Town Clerk forms and documents scraper @added(2026-04-12)
-	- Assign correct document_type frontmatter to each new source @added(2026-04-12)
-	- Update metadata filter to route queries by document type @added(2026-04-12)
-	- Rebuild FTS5 index to include all new vault documents @added(2026-04-12)
-	- Validate retrieval quality across all data source types @added(2026-04-12)
+	- Review eCode360 robots.txt and access constraints @done(2026-04-14) @added(2026-04-12)
+	- Build eCode360 scraper (ordinances and zoning code) @done(2026-04-14) @added(2026-04-12)
+	- Set up YouTube Data API credentials @done(2026-04-14) @added(2026-04-12)
+	- Build YouTube caption scraper (API only, no direct video scraping) @done(2026-04-14) @added(2026-04-12)
+	- Build Town Clerk forms and documents scraper @done(2026-04-14) @added(2026-04-12)
+	- Assign correct document_type frontmatter to each new source @done(2026-04-14) @added(2026-04-12)
+	- Update metadata filter to route queries by document type @done(2026-04-14) @added(2026-04-12)
+	- Rebuild FTS5 index to include all new vault documents @done(2026-04-14) @added(2026-04-12)
+	- Validate retrieval quality across all data source types @done(2026-04-14) @added(2026-04-12)
 
 Phase 5 - Letter Drafting:
 	- Design multi-turn letter drafting dialogue flow @na @added(2026-04-12)
