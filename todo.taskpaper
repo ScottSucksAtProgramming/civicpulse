@@ -28,13 +28,16 @@ Phase 2 - Core Retrieval Pipeline:
 	- Validate provider env vars at startup and support CIVICPULSE_FILTER_MODEL override @done(2026-04-13) @added(2026-04-13)
 
 Phase 3 - Web Chat MVP:
-	- Design and build chat UI (mobile-first, no login) @na @added(2026-04-12)
-	- Build guided entry flow with 3-4 topic categories and example prompts @added(2026-04-12)
-	- Wire frontend to POST /query backend @added(2026-04-12)
-	- Render responses with clickable source citation links @added(2026-04-12)
-	- Add persistent disclaimer on every page @added(2026-04-12)
-	- Write and publish privacy statement page @added(2026-04-12)
-	- Test full flow: browser question → vault retrieval → grounded answer @added(2026-04-12)
+	- Design and build chat UI (mobile-first, no login) @done(2026-04-14) @added(2026-04-12)
+	- Build guided entry flow with 6 topic category cards (conversational inline cards) @done(2026-04-14) @added(2026-04-12)
+	- Wire frontend to POST /query backend @done(2026-04-14) @added(2026-04-12)
+	- Render responses with clickable source citation links (collapsed toggle) @done(2026-04-14) @added(2026-04-12)
+	- Add persistent non-affiliation disclaimer banner @done(2026-04-14) @added(2026-04-12)
+	- Add inline privacy statement section @done(2026-04-14) @added(2026-04-12)
+	- Copy-to-clipboard with CivicPulse attribution @done(2026-04-14) @added(2026-04-12)
+	- New conversation reset returning to opening message with cards @done(2026-04-14) @added(2026-04-12)
+	- Periodic accuracy nudges in chat thread @done(2026-04-14) @added(2026-04-12)
+	- Test full flow: browser question → vault retrieval → grounded answer @done(2026-04-14) @added(2026-04-12)
 	- Deploy to staging environment @added(2026-04-12)
 
 Phase 4 - Expanded Corpus:
