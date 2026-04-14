@@ -57,6 +57,7 @@ civicpulse/
     pdf-date-extraction.md
     phase2-retrieval-pipeline.md
     multi-provider-llm.md
+    phase3-web-chat.md
   context/
     conventions.md
     lessons.md
@@ -91,7 +92,7 @@ After completing a task, log any corrections, preferences, patterns, or discover
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
 
-- 2026-04-13 — `create_app(vault_path)` must default to `None` and resolve from `CIVICPULSE_VAULT_PATH` env var so uvicorn `--factory` mode works without args.
+- 2026-04-14 — Phase 3 frontend: Alpine.js (CDN, no build step) + single `index.html` served via FastAPI `StaticFiles`. `StaticFiles` must use an absolute path from `__file__` — relative paths break under uvicorn `--factory`. Mount after API routes. Category cards are a JS data array (single source of truth). Opening message with inline cards seeded via `init()` for conversational feel. Card tap submits immediately; Enter submits, Shift+Enter newlines.
 - 2026-04-13 — `MetadataFilter` requires a system prompt explaining the tool's purpose; bare user messages cause models to return text instead of calling the tool, producing a silent `LLMError` fallback to empty filter.
 - 2026-04-13 — Multi-provider LLM abstraction: `LLMProvider` protocol + `LLMError` in `backend/providers/base.py`; `tool_call()` takes `tool_name` + raw JSON Schema separately — each provider wraps into its own envelope; `AnthropicProvider` lazy-imports SDK in `__init__`; all SDK exceptions wrapped as `LLMError`.
 - 2026-04-13 — Provider startup config belongs in FastAPI lifespan: validate `CIVICPULSE_PROVIDER` and required API keys there, build one shared provider instance, and pass `CIVICPULSE_FILTER_MODEL` separately from `CIVICPULSE_MODEL` so MetadataFilter can stay cheaper without touching QueryPipeline or the route handler.

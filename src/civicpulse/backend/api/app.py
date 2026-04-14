@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from civicpulse.backend.providers import LLMError, get_provider
@@ -35,6 +36,8 @@ def _read_top_n() -> int:
 def create_app(vault_path: Path | None = None) -> FastAPI:
     if vault_path is None:
         vault_path = Path(os.getenv("CIVICPULSE_VAULT_PATH", "./vault"))
+    frontend_dir = Path(__file__).resolve().parents[4] / "frontend"
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         indexer = FTSIndexer(vault_path)
@@ -73,5 +76,7 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
                     "Please try again shortly."
                 ),
             ) from exc
+
+    app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     return app

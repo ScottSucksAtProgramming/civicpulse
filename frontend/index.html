@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CivicPulse</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d6b63'/%3E%3Cpath d='M18 31c8-11 20-16 28-11-2 15-14 26-28 28 0-6 0-12 0-17z' fill='%23fffaf1'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  </head>
+  <body>
+    <div class="app-shell" x-data="chatApp()">
+      <div class="disclaimer-banner" role="note">
+        CivicPulse is an independent civic information tool and is not affiliated with,
+        endorsed by, or associated with the Town of Babylon.
+      </div>
+
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">Public records, translated plainly</p>
+          <h1>CivicPulse</h1>
+        </div>
+        <button
+          type="button"
+          class="secondary-button"
+          x-transition.opacity
+          @click="startNewConversation()"
+        >
+          New conversation
+        </button>
+      </header>
+
+      <main class="app-main">
+        <section
+          class="chat-thread"
+          x-ref="thread"
+          aria-live="polite"
+        >
+          <template x-for="message in messages" :key="message.id">
+            <article class="message" :class="`message-${message.role}`">
+              <div class="message-meta">
+                <span class="message-role" x-text="labelForRole(message.role)"></span>
+                <span class="message-time" x-text="formatTimestamp(message.timestamp)"></span>
+              </div>
+
+              <div class="message-text" x-text="message.text"></div>
+
+              <div class="inline-categories" x-show="message.showCategories">
+                <template x-for="category in categories" :key="category.id">
+                  <button
+                    type="button"
+                    class="category-card inline-card"
+                    @click="submitCategory(category)"
+                    :disabled="isLoading"
+                  >
+                    <span class="category-icon" x-text="category.icon" aria-hidden="true"></span>
+                    <span class="category-label" x-text="category.label"></span>
+                    <span class="category-prompt" x-text="category.examplePrompt"></span>
+                  </button>
+                </template>
+              </div>
+
+              <div class="message-actions" x-show="message.role === 'assistant'">
+                <button
+                  type="button"
+                  class="text-button"
+                  @click="copyMessage(message)"
+                >
+                  Copy
+                </button>
+              </div>
+
+              <div class="sources-block" x-show="message.role === 'assistant' && message.sources.length">
+                <button
+                  type="button"
+                  class="text-button"
+                  @click="toggleSources(message.id)"
+                  x-text="sourceToggleLabel(message)"
+                ></button>
+
+                <ul class="source-list" x-show="isSourcesExpanded(message.id)">
+                  <template x-for="source in message.sources" :key="`${message.id}-${source.url}`">
+                    <li>
+                      <a :href="source.url" target="_blank" rel="noreferrer noopener">
+                        <span x-text="source.title"></span>
+                      </a>
+                      <span class="source-date" x-show="source.date" x-text="formatSourceDate(source.date)"></span>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </article>
+          </template>
+        </section>
+
+        <section class="privacy-panel" id="privacy">
+          <h2>Privacy &amp; Data Use</h2>
+          <p>
+            CivicPulse does not require an account and does not collect or store personal
+            information. Your question text is sent anonymously to the CivicPulse backend so
+            it can search public town records and generate a response.
+          </p>
+        </section>
+      </main>
+
+      <form class="composer" @submit.prevent="submitQuestion()">
+        <label class="sr-only" for="question-input">Ask CivicPulse a question</label>
+        <textarea
+          id="question-input"
+          x-ref="questionInput"
+          x-model="input"
+          rows="1"
+          placeholder="Ask about meetings, services, representatives, or local issues"
+          :disabled="isLoading"
+          @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); submitQuestion() }"
+        ></textarea>
+        <button type="submit" class="send-button" :disabled="isLoading || !trimmedInput">
+          <span x-show="!isLoading">Send</span>
+          <span x-show="isLoading" class="spinner-wrap">
+            <span class="spinner" aria-hidden="true"></span>
+            Searching
+          </span>
+        </button>
+      </form>
+
+      <footer class="app-footer">
+        <a href="#privacy">Privacy &amp; Data Use</a>
+      </footer>
+    </div>
+
+    <script>
+      const CIVICPULSE_ATTRIBUTION_URL = "https://civicpulse.app";
+      const OPENING_MESSAGE =
+        "Hi — I'm CivicPulse. Ask me anything about Town of Babylon government, or pick a topic to get started:";
+      const CATEGORY_CARDS = [
+        {
+          id: "happening",
+          label: "What's Happening?",
+          icon: "01",
+          examplePrompt: "What are the upcoming town meetings and recent decisions?",
+        },
+        {
+          id: "issue",
+          label: "Explain an Issue",
+          icon: "02",
+          examplePrompt: "Tell me about [issue or topic]",
+        },
+        {
+          id: "service",
+          label: "Find a Service",
+          icon: "03",
+          examplePrompt: "How do I [task or need]?",
+        },
+        {
+          id: "representatives",
+          label: "My Representatives",
+          icon: "04",
+          examplePrompt: "Who represents me and what have they voted on?",
+        },
+        {
+          id: "contact",
+          label: "Contact a Representative",
+          icon: "05",
+          examplePrompt: "I want to reach out to my representative about an issue",
+        },
+        {
+          id: "process",
+          label: "How Government Works",
+          icon: "06",
+          examplePrompt: "How does the Town Board make decisions?",
+        },
+      ];
+
+      function chatApp() {
+        return {
+          input: "",
+          isLoading: false,
+          messages: [],
+          categories: CATEGORY_CARDS,
+          expandedSources: {},
+          assistantResponseCount: 0,
+          nextMessageId: 0,
+          init() {
+            this.resetConversation();
+          },
+          get trimmedInput() {
+            return this.input.trim();
+          },
+          submitCategory(category) {
+            if (this.isLoading) {
+              return;
+            }
+            this.submitQuestion(category.examplePrompt);
+          },
+          startNewConversation() {
+            this.resetConversation();
+            this.$nextTick(() => this.$refs.questionInput.focus());
+          },
+          resetConversation() {
+            this.input = "";
+            this.isLoading = false;
+            this.messages = [];
+            this.expandedSources = {};
+            this.assistantResponseCount = 0;
+            this.nextMessageId = 0;
+            this.appendMessage("assistant", OPENING_MESSAGE, [], { showCategories: true });
+            this.scrollThreadToBottom();
+          },
+          async submitQuestion(prefilledQuestion = null) {
+            const question = (prefilledQuestion ?? this.trimmedInput).trim();
+            if (!question || this.isLoading) {
+              return;
+            }
+
+            this.appendMessage("user", question);
+            this.input = "";
+            this.isLoading = true;
+
+            const loadingId = this.appendMessage("system", "Searching town records…");
+
+            try {
+              const response = await fetch("/query", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ question }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              const payload = await response.json();
+              this.replaceMessage(loadingId, {
+                role: "assistant",
+                text: payload.answer,
+                sources: payload.sources || [],
+              });
+              this.afterAssistantResponse();
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not answer that right now. Please try again shortly or verify details at an official town source."
+              );
+            } finally {
+              this.isLoading = false;
+              this.$nextTick(() => this.$refs.questionInput.focus());
+            }
+          },
+          appendMessage(role, text, sources = [], extras = {}) {
+            const id = `message-${this.nextMessageId++}`;
+            this.messages.push({
+              id,
+              role,
+              text,
+              sources,
+              timestamp: new Date().toISOString(),
+              showCategories: false,
+              ...extras,
+            });
+            this.scrollThreadToBottom();
+            return id;
+          },
+          replaceMessage(id, replacement) {
+            this.messages = this.messages.map((message) =>
+              message.id === id
+                ? {
+                    id,
+                    role: replacement.role,
+                    text: replacement.text,
+                    sources: replacement.sources || [],
+                    timestamp: new Date().toISOString(),
+                    showCategories: false,
+                  }
+                : message
+            );
+            this.scrollThreadToBottom();
+          },
+          removeMessage(id) {
+            this.messages = this.messages.filter((message) => message.id !== id);
+            delete this.expandedSources[id];
+            this.scrollThreadToBottom();
+          },
+          afterAssistantResponse() {
+            this.assistantResponseCount += 1;
+            if (
+              this.assistantResponseCount === 1 ||
+              this.assistantResponseCount % 5 === 0
+            ) {
+              this.appendMessage(
+                "system",
+                "Answers are AI-generated from public records — always verify important information at official sources."
+              );
+            }
+          },
+          toggleSources(messageId) {
+            this.expandedSources[messageId] = !this.expandedSources[messageId];
+          },
+          isSourcesExpanded(messageId) {
+            return Boolean(this.expandedSources[messageId]);
+          },
+          sourceToggleLabel(message) {
+            const count = message.sources.length;
+            return `${this.isSourcesExpanded(message.id) ? "Hide" : "Show"} sources (${count})`;
+          },
+          async copyMessage(message) {
+            const sourceBlock = message.sources.length
+              ? `\n\nSources:\n${message.sources
+                  .map((source) => `${source.title}: ${source.url}`)
+                  .join("\n")}`
+              : "";
+            const copyText = `${message.text}${sourceBlock}\n\nCivicPulse: ${CIVICPULSE_ATTRIBUTION_URL}`;
+
+            try {
+              await navigator.clipboard.writeText(copyText);
+            } catch (error) {
+              this.appendMessage(
+                "system",
+                "Clipboard access was blocked. You can still select and copy the answer manually."
+              );
+            }
+          },
+          labelForRole(role) {
+            if (role === "user") return "You";
+            if (role === "assistant") return "CivicPulse";
+            return "Notice";
+          },
+          formatTimestamp(timestamp) {
+            return new Intl.DateTimeFormat([], {
+              hour: "numeric",
+              minute: "2-digit",
+            }).format(new Date(timestamp));
+          },
+          formatSourceDate(date) {
+            return new Intl.DateTimeFormat([], {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            }).format(new Date(date));
+          },
+          scrollThreadToBottom() {
+            this.$nextTick(() => {
+              if (this.$refs.thread) {
+                this.$refs.thread.scrollTop = this.$refs.thread.scrollHeight;
+              }
+            });
+          },
+        };
+      }
+    </script>
+  </body>
+</html>

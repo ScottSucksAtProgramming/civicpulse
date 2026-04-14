@@ -208,6 +208,30 @@ def test_post_query_returns_no_content_fallback_without_completion_call(tmp_path
     assert provider.completion_calls == []
 
 
+def test_create_app_serves_frontend_index_from_root(tmp_path, monkeypatch):
+    with build_test_client(tmp_path, monkeypatch) as client:
+        response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "CivicPulse" in response.text
+    assert "Ask me anything about Town of Babylon government" in response.text
+
+
+def test_create_app_serves_frontend_assets_from_absolute_path(tmp_path, monkeypatch):
+    original_cwd = Path.cwd()
+    monkeypatch.chdir(tmp_path)
+
+    try:
+        with build_test_client(tmp_path, monkeypatch) as client:
+            response = client.get("/styles.css")
+    finally:
+        monkeypatch.chdir(original_cwd)
+
+    assert response.status_code == 200
+    assert "text/css" in response.headers["content-type"]
+
+
 def test_post_query_returns_503_when_provider_raises_llm_error(tmp_path, monkeypatch):
     write_chunk(
         tmp_path,

@@ -10,6 +10,7 @@ Quick-reference for finding content in this directory. For conventions, see `con
 | `docs/CivicPulse_Resources.md` | Links to all data sources, APIs, and tools referenced during planning | When setting up scrapers or integrations |
 | `docs/references/` | Reference articles and research (e.g. the no-escape theorem PDF) | Background reading |
 | `plans/civicpulse.md` | 8-phase vertical-slice implementation plan derived from the PRD | When starting a new phase or evaluating architectural decisions |
+| `plans/phase3-web-chat.md` | 4-phase implementation plan for the Phase 3 Web Chat MVP | When building or extending the frontend |
 | `todo.taskpaper` | Task tracking file by milestone phase — use `na next` to see current next actions | Daily task management |
 
 ## Key Architecture References (from PRD)
@@ -21,7 +22,7 @@ Quick-reference for finding content in this directory. For conventions, see `con
 | Search | SQLite FTS5 (BM25 keyword) + LLM semantic re-ranking; no embedding service |
 | Retrieval flow | Metadata filter → BM25 search → LLM re-ranking → grounded response |
 | Data sources | townofbabylonny.gov, eCode360, YouTube Data API, Town Clerk docs |
-| Frontend | Mobile-friendly web chat, no login required |
+| Frontend | Alpine.js + HTML/CSS served as static files from FastAPI (`frontend/`); no build step |
 | Privacy | No PII — PII redaction pipeline required before any storage |
 
 ## Phases (from PRD)
