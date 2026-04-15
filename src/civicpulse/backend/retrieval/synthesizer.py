@@ -34,7 +34,9 @@ class Synthesizer:
                     "role": "system",
                     "content": (
                         "Answer only from the provided CivicPulse source excerpts. "
-                        "Cite supporting excerpts only by bracketed reference number such as [1]."
+                        "Cite supporting excerpts only by bracketed reference number such as [1]. "
+                        "If the user asks to draft a letter, write to a representative, or contact an official, "
+                        "direct them to the 'Contact a Representative' category card."
                     ),
                 },
                 {"role": "user", "content": prompt},

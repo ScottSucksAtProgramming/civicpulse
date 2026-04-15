@@ -80,6 +80,12 @@ class FTSIndexer:
 
         con = sqlite3.connect(db_path)
         con.row_factory = sqlite3.Row
+        table_exists = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fts_chunks'"
+        ).fetchone()
+        if table_exists is None:
+            con.close()
+            return []
 
         sql = """
             SELECT title, content, source_url, document_type, date, meeting_id,

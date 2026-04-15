@@ -9,6 +9,7 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d6b63'/%3E%3Cpath d='M18 31c8-11 20-16 28-11-2 15-14 26-28 28 0-6 0-12 0-17z' fill='%23fffaf1'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   </head>
   <body>
@@ -63,7 +64,7 @@
                 </template>
               </div>
 
-              <div class="message-actions" x-show="message.role === 'assistant'">
+              <div class="message-actions" x-show="message.role === 'assistant' || message.role === 'letter'">
                 <button
                   type="button"
                   class="text-button"
@@ -71,9 +72,69 @@
                 >
                   Copy
                 </button>
+                <button
+                  type="button"
+                  class="text-button"
+                  x-show="message.role === 'letter'"
+                  @click="openRevisionEditor(message.id)"
+                >
+                  Revise
+                </button>
+                <button
+                  type="button"
+                  class="text-button"
+                  x-show="message.role === 'letter'"
+                  @click="downloadLetterPdf()"
+                >
+                  Download PDF
+                </button>
+                <button
+                  type="button"
+                  class="text-button"
+                  x-show="message.role === 'letter'"
+                  @click="toggleSubmitPanel()"
+                >
+                  Submit Online
+                </button>
               </div>
 
-              <div class="sources-block" x-show="message.role === 'assistant' && message.sources.length">
+              <div
+                class="revision-panel"
+                x-show="message.role === 'letter' && draftStep === 'revising' && draftContext.letterMessageId === message.id"
+              >
+                <input
+                  type="text"
+                  x-model="draftContext.revisionRequest"
+                  placeholder="What should change in the letter?"
+                  :disabled="isLoading"
+                />
+                <button
+                  type="button"
+                  class="secondary-button"
+                  @click="submitRevisionRequest()"
+                  :disabled="isLoading || !draftContext.revisionRequest.trim()"
+                >
+                  Update draft
+                </button>
+              </div>
+
+              <div
+                class="submit-panel"
+                x-show="message.role === 'letter' && draftContext.submitPanelOpen"
+              >
+                <textarea readonly x-text="draftContext.currentLetter"></textarea>
+                <a
+                  :href="contactPageUrl()"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  x-text="submitPanelLinkLabel()"
+                ></a>
+                <p>1. Open the official town page in a new tab.</p>
+                <p>2. Copy the letter text into the town form or email field.</p>
+                <p>3. Review the recipient details and submit through the official town site.</p>
+              </div>
+
+              <div class="sources-block" x-show="(message.role === 'assistant' || message.role === 'letter') && message.sources.length">
                 <button
                   type="button"
                   class="text-button"
@@ -107,17 +168,76 @@
       </main>
 
       <form class="composer" @submit.prevent="submitQuestion()">
+        <div
+          class="draft-panel"
+          x-show="draftMode && draftStep === 'recipient_confirm'"
+        >
+          <p class="draft-panel-title">Confirm the recipient</p>
+          <div class="draft-option-row">
+            <button
+              type="button"
+              class="secondary-button"
+              @click="confirmSuggestedRecipient()"
+              :disabled="isLoading"
+            >
+              Yes
+            </button>
+            <select x-model="draftContext.recipientOption" :disabled="isLoading">
+              <template x-for="option in boardOptions" :key="option">
+                <option :value="option" x-text="option"></option>
+              </template>
+            </select>
+            <button
+              type="button"
+              class="secondary-button"
+              @click="confirmSelectedRecipient()"
+              :disabled="isLoading"
+            >
+              Use selection
+            </button>
+          </div>
+          <input
+            x-show="draftContext.recipientOption === 'Department'"
+            x-model="draftContext.departmentName"
+            type="text"
+            placeholder="Enter the department name"
+            :disabled="isLoading"
+          />
+        </div>
+
+        <div
+          class="draft-panel"
+          x-show="draftMode && draftStep === 'tone'"
+        >
+          <p class="draft-panel-title">Choose the tone</p>
+          <div class="draft-tone-row">
+            <button type="button" class="secondary-button" @click="chooseDraftTone('Formal')">
+              Formal
+            </button>
+            <button type="button" class="secondary-button" @click="chooseDraftTone('Firm')">
+              Firm
+            </button>
+            <button type="button" class="secondary-button" @click="chooseDraftTone('Friendly')">
+              Friendly
+            </button>
+          </div>
+        </div>
+
         <label class="sr-only" for="question-input">Ask CivicPulse a question</label>
         <textarea
           id="question-input"
           x-ref="questionInput"
           x-model="input"
           rows="1"
-          placeholder="Ask about meetings, services, representatives, or local issues"
-          :disabled="isLoading"
+          :placeholder="composerPlaceholder"
+          :disabled="isLoading || !isTextInputStep"
           @keydown.enter="if (!$event.shiftKey) { $event.preventDefault(); submitQuestion() }"
         ></textarea>
-        <button type="submit" class="send-button" :disabled="isLoading || !trimmedInput">
+        <button
+          type="submit"
+          class="send-button"
+          :disabled="isLoading || !isTextInputStep || !trimmedInput"
+        >
           <span x-show="!isLoading">Send</span>
           <span x-show="isLoading" class="spinner-wrap">
             <span class="spinner" aria-hidden="true"></span>
@@ -173,6 +293,63 @@
           examplePrompt: "How does the Town Board make decisions?",
         },
       ];
+      const CONTACT_PAGE_URLS = {
+        "Town Board": "https://www.townofbabylonny.gov/AgendaCenter/Town-Board-4",
+        "Town Council": "https://www.townofbabylonny.gov/115/Town-Council",
+        "Planning Board": "https://www.townofbabylonny.gov/123/Planning-Board",
+        "Zoning Board of Appeals": "https://www.townofbabylonny.gov/AgendaCenter",
+        "Town Clerk": "https://www.townofbabylonny.gov/152/Town-Clerks-Office",
+        "Department": "https://www.townofbabylonny.gov/8/Departments",
+      };
+      const RECIPIENT_ADDRESS_BLOCKS = {
+        "Town Board": [
+          "Town Board",
+          "Town of Babylon",
+          "200 East Sunrise Highway",
+          "Lindenhurst, NY 11757",
+        ],
+        "Town Council": [
+          "Town Council",
+          "Town of Babylon",
+          "200 East Sunrise Highway",
+          "Lindenhurst, NY 11757",
+        ],
+        "Planning Board": [
+          "Planning Board",
+          "Town of Babylon",
+          "200 East Sunrise Highway",
+          "Lindenhurst, NY 11757",
+        ],
+        "Zoning Board of Appeals": [
+          "Zoning Board of Appeals",
+          "Town of Babylon",
+          "200 East Sunrise Highway",
+          "Lindenhurst, NY 11757",
+        ],
+        "Town Clerk": [
+          "Town Clerk",
+          "Town of Babylon",
+          "200 East Sunrise Highway",
+          "Lindenhurst, NY 11757",
+        ],
+      };
+      const EMPTY_DRAFT_CONTEXT = () => ({
+        concern: "",
+        suggestedRecipient: "",
+        confirmedRecipient: "",
+        recipientOption: "",
+        departmentName: "",
+        topic: "",
+        abstractedConcern: "",
+        outcome: "",
+        tone: "",
+        currentLetter: "",
+        revisionCount: 0,
+        revisionRequest: "",
+        letterMessageId: "",
+        submitPanelOpen: false,
+        sources: [],
+      });
 
       function chatApp() {
         return {
@@ -183,14 +360,43 @@
           expandedSources: {},
           assistantResponseCount: 0,
           nextMessageId: 0,
+          draftMode: false,
+          draftStep: "",
+          draftContext: EMPTY_DRAFT_CONTEXT(),
           init() {
             this.resetConversation();
           },
           get trimmedInput() {
             return this.input.trim();
           },
+          get boardOptions() {
+            return [
+              "Town Board",
+              "Town Council",
+              "Planning Board",
+              "Zoning Board of Appeals",
+              "Town Clerk",
+              "Department",
+            ];
+          },
+          get composerPlaceholder() {
+            if (this.draftMode && this.draftStep === "concern") {
+              return "Describe the concern you want to raise";
+            }
+            if (this.draftMode && this.draftStep === "outcome") {
+              return "What outcome are you hoping for?";
+            }
+            return "Ask about meetings, services, representatives, or local issues";
+          },
+          get isTextInputStep() {
+            return !this.draftMode || this.draftStep === "concern" || this.draftStep === "outcome";
+          },
           submitCategory(category) {
             if (this.isLoading) {
+              return;
+            }
+            if (category.id === "contact") {
+              this.startDraftFlow();
               return;
             }
             this.submitQuestion(category.examplePrompt);
@@ -206,12 +412,33 @@
             this.expandedSources = {};
             this.assistantResponseCount = 0;
             this.nextMessageId = 0;
+            this.draftMode = false;
+            this.draftStep = "";
+            this.draftContext = EMPTY_DRAFT_CONTEXT();
             this.appendMessage("assistant", OPENING_MESSAGE, [], { showCategories: true });
             this.scrollThreadToBottom();
           },
+          startDraftFlow() {
+            this.draftMode = true;
+            this.draftStep = "concern";
+            this.draftContext = EMPTY_DRAFT_CONTEXT();
+            this.appendMessage("assistant", "What's your concern?");
+            this.$nextTick(() => this.$refs.questionInput.focus());
+          },
           async submitQuestion(prefilledQuestion = null) {
             const question = (prefilledQuestion ?? this.trimmedInput).trim();
-            if (!question || this.isLoading) {
+            if ((!question && this.isTextInputStep) || this.isLoading) {
+              return;
+            }
+            if (this.draftMode && this.draftStep === "concern") {
+              await this.submitDraftConcern(question);
+              return;
+            }
+            if (this.draftMode && this.draftStep === "outcome") {
+              this.submitDraftOutcome(question);
+              return;
+            }
+            if (this.draftMode) {
               return;
             }
 
@@ -252,6 +479,280 @@
               this.$nextTick(() => this.$refs.questionInput.focus());
             }
           },
+          async submitDraftConcern(concern) {
+            this.appendMessage("user", concern);
+            this.input = "";
+            this.isLoading = true;
+            this.draftContext.concern = concern;
+
+            const loadingId = this.appendMessage("system", "Finding the right office…");
+
+            try {
+              const response = await fetch("/draft/suggest-recipient", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ concern }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              const payload = await response.json();
+              this.draftContext.suggestedRecipient = payload.suggested_recipient;
+              this.draftContext.recipientOption = payload.suggested_recipient;
+              this.draftContext.topic = payload.topic;
+              this.draftContext.abstractedConcern = payload.abstracted_concern;
+              this.draftStep = "recipient_confirm";
+
+              this.replaceMessage(loadingId, {
+                role: "assistant",
+                text: `It sounds like this is best addressed to the ${payload.suggested_recipient}.`,
+                sources: [],
+              });
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not draft that right now. Please try again shortly."
+              );
+            } finally {
+              this.isLoading = false;
+              this.$nextTick(() => this.$refs.questionInput.focus());
+            }
+          },
+          confirmSuggestedRecipient() {
+            this.finalizeRecipient(this.draftContext.suggestedRecipient);
+          },
+          confirmSelectedRecipient() {
+            if (!this.draftContext.recipientOption) {
+              return;
+            }
+            if (this.draftContext.recipientOption === "Department") {
+              const departmentName = this.draftContext.departmentName.trim();
+              if (!departmentName) {
+                return;
+              }
+              this.finalizeRecipient(departmentName);
+              return;
+            }
+            this.finalizeRecipient(this.draftContext.recipientOption);
+          },
+          finalizeRecipient(recipient) {
+            this.draftContext.confirmedRecipient = recipient;
+            this.appendMessage("user", recipient);
+            this.draftStep = "outcome";
+            this.appendMessage("assistant", "What outcome are you hoping for?");
+            this.$nextTick(() => this.$refs.questionInput.focus());
+          },
+          submitDraftOutcome(outcome) {
+            this.draftContext.outcome = outcome;
+            this.appendMessage("user", outcome);
+            this.input = "";
+            this.draftStep = "tone";
+            this.appendMessage("assistant", "What tone should the letter use?");
+          },
+          chooseDraftTone(tone) {
+            this.draftContext.tone = tone;
+            this.appendMessage("user", tone);
+            this.draftStep = "generating";
+            this.generateLetterDraft();
+          },
+          async generateLetterDraft() {
+            this.isLoading = true;
+            const loadingId = this.appendMessage("system", "Drafting your letter…");
+
+            try {
+              const response = await fetch("/draft/generate", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  concern: this.draftContext.concern,
+                  outcome: this.draftContext.outcome,
+                  tone: this.draftContext.tone,
+                  recipient: this.draftContext.confirmedRecipient,
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              const payload = await response.json();
+              this.draftContext.currentLetter = payload.letter;
+              this.draftContext.sources = payload.sources || [];
+              this.draftStep = "draft";
+              this.draftContext.letterMessageId = this.replaceMessage(loadingId, {
+                role: "letter",
+                text: payload.letter,
+                sources: payload.sources || [],
+              });
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.draftStep = "tone";
+              this.appendMessage(
+                "system",
+                "CivicPulse could not draft that right now. Please try again shortly."
+              );
+            } finally {
+              this.isLoading = false;
+              this.$nextTick(() => this.$refs.questionInput.focus());
+            }
+          },
+          openRevisionEditor(messageId) {
+            this.draftContext.letterMessageId = messageId;
+            this.draftContext.revisionRequest = "";
+            this.draftStep = "revising";
+          },
+          async submitRevisionRequest() {
+            const revisionRequest = this.draftContext.revisionRequest.trim();
+            if (!revisionRequest || this.isLoading) {
+              return;
+            }
+
+            this.isLoading = true;
+            const loadingId = this.appendMessage("system", "Revising your letter…");
+
+            try {
+              const response = await fetch("/draft/revise", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  current_letter: this.draftContext.currentLetter,
+                  revision_request: revisionRequest,
+                  concern: this.draftContext.concern,
+                  recipient: this.draftContext.confirmedRecipient,
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              const payload = await response.json();
+              this.draftContext.currentLetter = payload.letter;
+              this.draftContext.revisionCount += 1;
+              this.draftContext.revisionRequest = "";
+              this.draftStep = "draft";
+              this.replaceMessage(this.draftContext.letterMessageId, {
+                role: "letter",
+                text: payload.letter,
+                sources: this.draftContext.sources,
+              });
+              this.removeMessage(loadingId);
+
+              if (this.draftContext.revisionCount === 3) {
+                this.appendMessage(
+                  "system",
+                  "You can keep revising here, or download the draft and make final edits yourself."
+                );
+              }
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not revise that right now. Please try again shortly."
+              );
+            } finally {
+              this.isLoading = false;
+            }
+          },
+          toggleSubmitPanel() {
+            this.draftContext.submitPanelOpen = !this.draftContext.submitPanelOpen;
+          },
+          contactPageUrl() {
+            const recipientKey =
+              this.draftContext.recipientOption === "Department"
+                ? "Department"
+                : this.draftContext.confirmedRecipient;
+            return CONTACT_PAGE_URLS[recipientKey] || "https://www.townofbabylonny.gov/";
+          },
+          submitPanelLinkLabel() {
+            const recipientKey =
+              this.draftContext.recipientOption === "Department"
+                ? "Department"
+                : this.draftContext.confirmedRecipient;
+            return `Open the official ${recipientKey} contact page`;
+          },
+          downloadLetterPdf() {
+            const jspdf = window.jspdf;
+            if (!jspdf || !this.draftContext.currentLetter) {
+              this.appendMessage(
+                "system",
+                "PDF download is not available right now. Please try again shortly."
+              );
+              return;
+            }
+
+            const doc = new jspdf.jsPDF();
+            const today = new Date();
+            const dateLine = new Intl.DateTimeFormat([], {
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            }).format(today);
+            const addressLines = this.recipientAddressLines();
+            const { salutation, bodyLines, closing } = this.parseLetterSections();
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const margin = 20;
+            let y = 20;
+
+            const writeLines = (lines) => {
+              lines.forEach((line) => {
+                const wrapped = doc.splitTextToSize(line, pageWidth - margin * 2);
+                doc.text(wrapped, margin, y);
+                y += wrapped.length * 7;
+              });
+            };
+
+            writeLines([dateLine, ""]);
+            writeLines([...addressLines, ""]);
+            writeLines([salutation, ""]);
+            writeLines(bodyLines);
+            writeLines(["", closing]);
+
+            const dateSlug = today.toISOString().slice(0, 10);
+            doc.save(`letter-to-${this.recipientSlug()}-${dateSlug}.pdf`);
+          },
+          recipientAddressLines() {
+            const recipientKey =
+              this.draftContext.recipientOption === "Department"
+                ? "Department"
+                : this.draftContext.confirmedRecipient;
+            return (
+              RECIPIENT_ADDRESS_BLOCKS[recipientKey] || [
+                `${this.draftContext.confirmedRecipient}`,
+                "Verify the correct mailing address at townofbabylonny.gov before sending.",
+              ]
+            );
+          },
+          parseLetterSections() {
+            const paragraphs = this.draftContext.currentLetter
+              .split(/\n\s*\n/)
+              .map((paragraph) => paragraph.trim())
+              .filter(Boolean);
+            const salutation = paragraphs[0]?.startsWith("Dear ")
+              ? paragraphs.shift()
+              : `Dear ${this.draftContext.confirmedRecipient},`;
+            const closingParagraph = paragraphs.at(-1) || "Sincerely,\nA Resident";
+            const hasClosing = /^(Sincerely|Regards|Respectfully|Best)/i.test(closingParagraph);
+            const closing = hasClosing ? paragraphs.pop() : "Sincerely,\nA Resident";
+            const bodyLines = (paragraphs.length ? paragraphs : [this.draftContext.currentLetter])
+              .flatMap((paragraph) => [paragraph, ""]);
+            return { salutation, bodyLines, closing };
+          },
+          recipientSlug() {
+            return this.draftContext.confirmedRecipient
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, "");
+          },
           appendMessage(role, text, sources = [], extras = {}) {
             const id = `message-${this.nextMessageId++}`;
             this.messages.push({
@@ -280,6 +781,7 @@
                 : message
             );
             this.scrollThreadToBottom();
+            return id;
           },
           removeMessage(id) {
             this.messages = this.messages.filter((message) => message.id !== id);
@@ -327,6 +829,7 @@
           },
           labelForRole(role) {
             if (role === "user") return "You";
+            if (role === "letter") return "Letter Draft";
             if (role === "assistant") return "CivicPulse";
             return "Notice";
           },

@@ -6,9 +6,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from civicpulse.backend.api.draft import DraftLogger, build_draft_router
 from civicpulse.backend.providers import LLMError, get_provider
+from civicpulse.backend.retrieval.letter_generator import LetterGenerator
 from civicpulse.backend.retrieval.metadata_filter import MetadataFilter
 from civicpulse.backend.retrieval.query_pipeline import QueryPipeline
+from civicpulse.backend.retrieval.recipient_classifier import RecipientClassifier
 from civicpulse.backend.retrieval.retriever import Retriever
 from civicpulse.backend.retrieval.synthesizer import Synthesizer
 from civicpulse.backend.types import QueryResponse
@@ -45,8 +48,11 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         provider = get_provider()
         default_model = os.getenv("CIVICPULSE_MODEL", "gpt-4o-mini")
         filter_model = os.getenv("CIVICPULSE_FILTER_MODEL", default_model)
+        letter_model = os.getenv("CIVICPULSE_LETTER_MODEL", default_model)
         retriever = Retriever(indexer=indexer, top_n=top_n)
         synthesizer = Synthesizer(provider=provider, default_model=default_model)
+        draft_logger = DraftLogger(vault_path / ".index.db")
+        draft_logger.ensure_table()
         pipeline = QueryPipeline(
             metadata_filter=MetadataFilter(provider=provider, model=filter_model),
             retriever=retriever,
@@ -55,6 +61,14 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         app.state.indexer = indexer
         app.state.provider = provider
         app.state.pipeline = pipeline
+        app.state.recipient_classifier = RecipientClassifier(provider=provider)
+        app.state.draft_logger = draft_logger
+        app.state.letter_generator = LetterGenerator(
+            provider=provider,
+            indexer=indexer,
+            top_n=top_n,
+            model=letter_model,
+        )
         yield
 
     app = FastAPI(lifespan=lifespan)
@@ -77,6 +91,7 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
                 ),
             ) from exc
 
+    app.include_router(build_draft_router())
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     return app

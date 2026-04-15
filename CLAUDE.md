@@ -31,14 +31,17 @@ civicpulse/
           youtube.py
       backend/
         api/
+          draft.py
         providers/
           __init__.py
           anthropic.py
           base.py
           openai_compat.py
         retrieval/
+          letter_generator.py
           metadata_filter.py
           query_pipeline.py
+          recipient_classifier.py
           retriever.py
           synthesizer.py
         types.py
@@ -74,6 +77,7 @@ civicpulse/
     multi-provider-llm.md
     phase3-web-chat.md
     phase4-expanded-corpus.md
+    phase5-letter-drafting.md
   context/
     conventions.md
     lessons.md
@@ -92,6 +96,62 @@ civicpulse/
 9. Follow the Note-Taking protocol: log lessons to `context/lessons.md` after completing tasks.
 10. Use `na next` to see pending tasks. Add tasks with `na add "Task text"`.
 
+# 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
 ## Note-Taking
 
 After completing a task, log any corrections, preferences, patterns, or discoveries.
@@ -108,8 +168,8 @@ After completing a task, log any corrections, preferences, patterns, or discover
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
 
+- 2026-04-15 — Phase 5 letter drafting design: client-side state only (no sessions); 5-step frontend state machine (concern → suggest-recipient via Haiku → confirm/override → outcome → tone → generate via Sonnet); 3 backend endpoints (/draft/suggest-recipient, /draft/generate, /draft/revise); jsPDF CDN for PDF export; two delivery buttons (Download PDF / Submit Online); logging stores only third-person LLM rewrite + topic + recipient (raw concern never persisted). Plan at plans/phase5-letter-drafting.md.
 - 2026-04-14 — MetadataFilter system prompt needs: (1) today's date injected dynamically for relative date resolution; (2) per-type descriptions so LLM routes clerk-form vs clerk, meeting-video vs public-meeting correctly; (3) explicit instruction to leave dates null for vague references like "last month" — over-filtering on relative dates yields NO SOURCES.
 - 2026-04-14 — Phase 4 corpus: eCode360 via EcodeGateway API (customer BA0924, key pending from Town); interim = manual PDF + markitdown + § chunking. YouTube channel UCIYf6QoRXGaBgbqO24thUlg; youtube-transcript-api + Data API v3; 3-min/30-sec overlap windows. MetadataFilter taxonomy bug (minutes → meeting-minutes) is a prerequisite fix. New types: ordinance, meeting-video. PRD at GitHub issue #8.
 - 2026-04-14 — Phase 4 corpus implementation: keep source-specific frontmatter in `extra_metadata` on `RawDocument`/`VaultChunk`; `/243/` forms need depth 2 while the other Babylon website seeds stay at depth 1; eCode360 PDF imports infer `https://ecode360.com/{customer}#{section_number}` links, but exact section page IDs require the API-backed path.
 - 2026-04-14 — Phase 3 frontend: Alpine.js (CDN, no build step) + single `index.html` served via FastAPI `StaticFiles`. `StaticFiles` must use an absolute path from `__file__` — relative paths break under uvicorn `--factory`. Mount after API routes. Category cards are a JS data array (single source of truth). Opening message with inline cards seeded via `init()` for conversational feel. Card tap submits immediately; Enter submits, Shift+Enter newlines.
-- 2026-04-13 — `MetadataFilter` requires a system prompt explaining the tool's purpose; bare user messages cause models to return text instead of calling the tool, producing a silent `LLMError` fallback to empty filter.

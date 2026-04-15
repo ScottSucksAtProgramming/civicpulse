@@ -1,3 +1,4 @@
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -29,6 +30,7 @@ class StubProvider:
         self,
         *,
         tool_result: dict | None = None,
+        tool_error: Exception | None = None,
         completion_text: str | None = None,
         completion_error: Exception | None = None,
     ) -> None:
@@ -39,6 +41,7 @@ class StubProvider:
             "date_from": None,
             "date_to": None,
         }
+        self._tool_error = tool_error
         self._completion_text = completion_text or "Grounded answer. [1]"
         self._completion_error = completion_error
 
@@ -51,6 +54,8 @@ class StubProvider:
                 "model": model,
             }
         )
+        if self._tool_error is not None:
+            raise self._tool_error
         return self._tool_result
 
     def complete(self, *, messages, model):
@@ -84,6 +89,23 @@ def build_test_client(
         lambda: provider or StubProvider(),
     )
     return TestClient(create_app(vault_path=vault))
+
+
+def read_draft_log_rows(vault: Path) -> list[sqlite3.Row]:
+    con = sqlite3.connect(vault / ".index.db")
+    con.row_factory = sqlite3.Row
+    try:
+        return list(
+            con.execute(
+                """
+                SELECT recipient, topic, abstracted_concern, timestamp
+                FROM draft_log
+                ORDER BY rowid
+                """
+            )
+        )
+    finally:
+        con.close()
 
 
 def test_post_query_returns_grounded_answer_and_sources(tmp_path, monkeypatch):
@@ -122,6 +144,190 @@ def test_post_query_returns_grounded_answer_and_sources(tmp_path, monkeypatch):
                 "date": "2026-02-10",
             }
         ],
+    }
+
+
+def test_post_draft_suggest_recipient_returns_classification_and_logs_aggregate_record(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(
+        tool_result={
+            "suggested_recipient": "Planning Board",
+            "topic": "zoning",
+            "abstracted_concern": "A resident is concerned about a proposed zoning change.",
+        }
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/suggest-recipient",
+            json={"concern": "My neighbor wants to build a huge addition next to my house."},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "suggested_recipient": "Planning Board",
+        "topic": "zoning",
+        "abstracted_concern": "A resident is concerned about a proposed zoning change.",
+    }
+    assert provider.tool_calls[0]["tool_name"] == "classify_recipient"
+    rows = read_draft_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert dict(rows[0]) == {
+        "recipient": "Planning Board",
+        "topic": "zoning",
+        "abstracted_concern": "A resident is concerned about a proposed zoning change.",
+        "timestamp": rows[0]["timestamp"],
+    }
+    assert "neighbor wants to build" not in rows[0]["abstracted_concern"]
+
+
+def test_post_draft_suggest_recipient_returns_503_when_provider_raises_llm_error(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(tool_error=LLMError("upstream failure"))
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/suggest-recipient",
+            json={"concern": "I am worried about a rezoning proposal."},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "CivicPulse could not generate an answer right now. Please try again shortly."
+    }
+
+
+def test_post_draft_generate_returns_letter_and_sources_when_retrieval_hits(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content="The town board discussed a zoning amendment affecting setback rules.",
+        source_url="https://www.townofbabylonny.gov/zoning-amendment",
+        document_type="meeting-minutes",
+        date="2026-03-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(completion_text="Draft letter referencing the recent amendment. [1]")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/generate",
+            json={
+                "concern": "I am concerned about the zoning amendment.",
+                "outcome": "I want the board to reconsider it.",
+                "tone": "Formal",
+                "recipient": "Town Board",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "letter": "Draft letter referencing the recent amendment. [1]",
+        "sources": [
+            {
+                "title": "Town Board Minutes",
+                "url": "https://www.townofbabylonny.gov/zoning-amendment",
+                "document_type": "meeting-minutes",
+                "date": "2026-03-10",
+            }
+        ],
+    }
+
+
+def test_post_draft_generate_returns_letter_with_empty_sources_when_no_retrieval_hits(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(completion_text="Draft letter without retrieved sources.")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/generate",
+            json={
+                "concern": "I am concerned about a neighborhood issue.",
+                "outcome": "I want follow-up from the town.",
+                "tone": "Friendly",
+                "recipient": "Department",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "letter": "Draft letter without retrieved sources.",
+        "sources": [],
+    }
+
+
+def test_post_draft_generate_returns_503_when_provider_raises_llm_error(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(completion_error=LLMError("upstream failure"))
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/generate",
+            json={
+                "concern": "I am concerned about a zoning change.",
+                "outcome": "I want more review.",
+                "tone": "Firm",
+                "recipient": "Planning Board",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "CivicPulse could not generate an answer right now. Please try again shortly."
+    }
+
+
+def test_post_draft_revise_returns_revised_letter(tmp_path, monkeypatch):
+    provider = StubProvider(
+        completion_text="Dear Planning Board,\n\nPlease defer a vote until the traffic study is complete.\n\nSincerely,\nA Resident"
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/revise",
+            json={
+                "current_letter": "Dear Planning Board,\n\nPlease review this matter.\n\nSincerely,\nA Resident",
+                "revision_request": "Make it more specific and mention the traffic study.",
+                "concern": "I am concerned about traffic impacts.",
+                "recipient": "Planning Board",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "letter": "Dear Planning Board,\n\nPlease defer a vote until the traffic study is complete.\n\nSincerely,\nA Resident"
+    }
+    assert response.json()["letter"] != (
+        "Dear Planning Board,\n\nPlease review this matter.\n\nSincerely,\nA Resident"
+    )
+
+
+def test_post_draft_revise_returns_503_when_provider_raises_llm_error(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(completion_error=LLMError("upstream failure"))
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/revise",
+            json={
+                "current_letter": "Current draft",
+                "revision_request": "Shorten it.",
+                "concern": "I am concerned about a zoning change.",
+                "recipient": "Planning Board",
+            },
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "CivicPulse could not generate an answer right now. Please try again shortly."
     }
 
 
@@ -187,6 +393,36 @@ def test_post_query_runs_pipeline_with_single_provider(tmp_path, monkeypatch):
     }
     assert len(provider.tool_calls) == 1
     assert len(provider.completion_calls) == 1
+
+
+def test_post_query_includes_letter_drafting_redirect_in_synthesizer_prompt(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content=(
+            "Residents can contact the planning board representative about zoning "
+            "applications and related review requests."
+        ),
+        source_url="https://www.townofbabylonny.gov/planning",
+        document_type="planning",
+        date="2026-03-10",
+        title="Planning Board Overview",
+        slug="planning-board-overview-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider()
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "I want to write a letter to my representative"},
+        )
+
+    assert response.status_code == 200
+    assert (
+        "Contact a Representative" in provider.completion_calls[0]["messages"][0]["content"]
+    )
 
 
 def test_post_query_returns_no_content_fallback_without_completion_call(tmp_path, monkeypatch):
