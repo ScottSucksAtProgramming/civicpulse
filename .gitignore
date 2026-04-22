@@ -30,8 +30,10 @@ build/
 
 # Data — vault and index are build artifacts, not source
 .worktrees/
-vault/
+vault/*
 !vault/.gitkeep
+!vault/privacy/
+!vault/privacy/*.md
 data/ecode360/
 data/youtube/
 *.db

@@ -7,12 +7,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from civicpulse.backend.api.draft import DraftLogger, build_draft_router
+from civicpulse.backend.api.loggers import QueryLogger, SoapboxLogger
+from civicpulse.backend.api.soapbox import build_soapbox_router, read_soapbox_max_turns
 from civicpulse.backend.providers import LLMError, get_provider
 from civicpulse.backend.retrieval.letter_generator import LetterGenerator
 from civicpulse.backend.retrieval.metadata_filter import MetadataFilter
 from civicpulse.backend.retrieval.query_pipeline import QueryPipeline
 from civicpulse.backend.retrieval.recipient_classifier import RecipientClassifier
 from civicpulse.backend.retrieval.retriever import Retriever
+from civicpulse.backend.retrieval.soapbox_pipeline import SoapboxPipeline
 from civicpulse.backend.retrieval.synthesizer import Synthesizer
 from civicpulse.backend.types import QueryResponse
 from civicpulse.scraper.indexer import FTSIndexer
@@ -49,10 +52,15 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         default_model = os.getenv("CIVICPULSE_MODEL", "gpt-4o-mini")
         filter_model = os.getenv("CIVICPULSE_FILTER_MODEL", default_model)
         letter_model = os.getenv("CIVICPULSE_LETTER_MODEL", default_model)
+        soapbox_model = os.getenv("CIVICPULSE_SOAPBOX_MODEL", default_model)
         retriever = Retriever(indexer=indexer, top_n=top_n)
         synthesizer = Synthesizer(provider=provider, default_model=default_model)
+        query_logger = QueryLogger(vault_path / ".index.db")
         draft_logger = DraftLogger(vault_path / ".index.db")
+        soapbox_logger = SoapboxLogger(vault_path / ".index.db")
+        query_logger.ensure_table()
         draft_logger.ensure_table()
+        soapbox_logger.ensure_table()
         pipeline = QueryPipeline(
             metadata_filter=MetadataFilter(provider=provider, model=filter_model),
             retriever=retriever,
@@ -61,8 +69,15 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         app.state.indexer = indexer
         app.state.provider = provider
         app.state.pipeline = pipeline
+        app.state.query_logger = query_logger
         app.state.recipient_classifier = RecipientClassifier(provider=provider)
         app.state.draft_logger = draft_logger
+        app.state.soapbox_logger = soapbox_logger
+        app.state.soapbox_max_turns = read_soapbox_max_turns()
+        app.state.soapbox_pipeline = SoapboxPipeline(
+            provider=provider,
+            model=soapbox_model,
+        )
         app.state.letter_generator = LetterGenerator(
             provider=provider,
             indexer=indexer,
@@ -81,7 +96,7 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
     )
     async def query(request: QueryRequest) -> QueryResponse:
         try:
-            return app.state.pipeline.run(request.question, model=request.model)
+            response, filters = app.state.pipeline.run(request.question, model=request.model)
         except LLMError as exc:
             raise HTTPException(
                 status_code=503,
@@ -90,8 +105,11 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
                     "Please try again shortly."
                 ),
             ) from exc
+        app.state.query_logger.log_query(filters.document_type)
+        return response
 
     app.include_router(build_draft_router())
+    app.include_router(build_soapbox_router())
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     return app

@@ -31,7 +31,11 @@ civicpulse/
           youtube.py
       backend/
         api/
+          app.py
           draft.py
+          loggers.py
+          soapbox.py
+        privacy.py
         providers/
           __init__.py
           anthropic.py
@@ -43,6 +47,7 @@ civicpulse/
           query_pipeline.py
           recipient_classifier.py
           retriever.py
+          soapbox_pipeline.py
           synthesizer.py
         types.py
   tests/
@@ -50,6 +55,7 @@ civicpulse/
       test_anthropic_provider.py
       test_metadata_filter.py
       test_openai_provider.py
+      test_privacy.py
       test_query_api.py
     retrieval/
       golden_set.yaml
@@ -61,7 +67,11 @@ civicpulse/
       test_ecode_api.py
       test_youtube.py
   vault/
+    privacy/
+      privacy-policy.md
   frontend/
+    index.html
+    privacy.html
   docs/
     CivicPulse_PRD.md
     CivicPulse_Resources.md
@@ -78,6 +88,7 @@ civicpulse/
     phase3-web-chat.md
     phase4-expanded-corpus.md
     phase5-letter-drafting.md
+    phase6-privacy-logging-soapbox.md
   context/
     conventions.md
     lessons.md
@@ -168,6 +179,7 @@ After completing a task, log any corrections, preferences, patterns, or discover
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
 
+- 2026-04-22 — Phase 6 Soapbox/Privacy design: redact() is regex-only + stateless (no LLM pass) in backend/privacy.py — applied at every DB write site; QueryPipeline.run() returns (QueryResponse, FilterSpec) so endpoint can log document_type to query_log without extra LLM call; Soapbox uses separate soapboxStep/soapboxMessages vars (not draftStep); /soapbox/submit makes no LLM call — pure storage; privacy policy is a vault doc (document_type: privacy) so RAG answers privacy questions naturally; /privacy.html is a StaticFiles-served static file, no new route. Plan at plans/phase6-privacy-logging-soapbox.md.
 - 2026-04-15 — Phase 5 letter drafting design: client-side state only (no sessions); 5-step frontend state machine (concern → suggest-recipient via Haiku → confirm/override → outcome → tone → generate via Sonnet); 3 backend endpoints (/draft/suggest-recipient, /draft/generate, /draft/revise); jsPDF CDN for PDF export; two delivery buttons (Download PDF / Submit Online); logging stores only third-person LLM rewrite + topic + recipient (raw concern never persisted). Plan at plans/phase5-letter-drafting.md.
 - 2026-04-14 — MetadataFilter system prompt needs: (1) today's date injected dynamically for relative date resolution; (2) per-type descriptions so LLM routes clerk-form vs clerk, meeting-video vs public-meeting correctly; (3) explicit instruction to leave dates null for vague references like "last month" — over-filtering on relative dates yields NO SOURCES.
 - 2026-04-14 — Phase 4 corpus: eCode360 via EcodeGateway API (customer BA0924, key pending from Town); interim = manual PDF + markitdown + § chunking. YouTube channel UCIYf6QoRXGaBgbqO24thUlg; youtube-transcript-api + Data API v3; 3-min/30-sec overlap windows. MetadataFilter taxonomy bug (minutes → meeting-minutes) is a prerequisite fix. New types: ordinance, meeting-video. PRD at GitHub issue #8.

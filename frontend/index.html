@@ -17,6 +17,7 @@
       <div class="disclaimer-banner" role="note">
         CivicPulse is an independent civic information tool and is not affiliated with,
         endorsed by, or associated with the Town of Babylon.
+        <a href="/privacy.html">Privacy policy</a>
       </div>
 
       <header class="app-header">
@@ -223,6 +224,40 @@
           </div>
         </div>
 
+        <div
+          class="draft-panel"
+          x-show="soapboxMode && hasSoapboxResponse && soapboxStep !== 'review'"
+        >
+          <button
+            type="button"
+            class="secondary-button"
+            @click="submitSoapboxForReview()"
+            :disabled="isLoading"
+          >
+            Submit my response
+          </button>
+        </div>
+
+        <div
+          class="draft-panel"
+          x-show="soapboxMode && soapboxStep === 'review'"
+        >
+          <p class="draft-panel-title">Review your summary</p>
+          <textarea
+            x-model="soapboxSummary"
+            rows="4"
+            :disabled="isLoading"
+          ></textarea>
+          <button
+            type="button"
+            class="secondary-button"
+            @click="approveSoapboxSummary()"
+            :disabled="isLoading || !soapboxSummary.trim()"
+          >
+            Approve summary
+          </button>
+        </div>
+
         <label class="sr-only" for="question-input">Ask CivicPulse a question</label>
         <textarea
           id="question-input"
@@ -255,6 +290,8 @@
       const CIVICPULSE_ATTRIBUTION_URL = "https://civicpulse.app";
       const OPENING_MESSAGE =
         "Hi — I'm CivicPulse. Ask me anything about Town of Babylon government, or pick a topic to get started:";
+      const SOAPBOX_OPENING_PROMPT = "What's on your mind about your community?";
+      const SOAPBOX_MAX_TURNS = 3;
       const CATEGORY_CARDS = [
         {
           id: "happening",
@@ -291,6 +328,12 @@
           label: "How Government Works",
           icon: "06",
           examplePrompt: "How does the Town Board make decisions?",
+        },
+        {
+          id: "soapbox",
+          label: "Share Your Voice",
+          icon: "07",
+          examplePrompt: SOAPBOX_OPENING_PROMPT,
         },
       ];
       const CONTACT_PAGE_URLS = {
@@ -363,6 +406,11 @@
           draftMode: false,
           draftStep: "",
           draftContext: EMPTY_DRAFT_CONTEXT(),
+          soapboxMode: false,
+          soapboxStep: "",
+          soapboxMessages: [],
+          soapboxSummary: "",
+          soapboxTopic: "",
           init() {
             this.resetConversation();
           },
@@ -386,10 +434,19 @@
             if (this.draftMode && this.draftStep === "outcome") {
               return "What outcome are you hoping for?";
             }
+            if (this.soapboxMode) {
+              return "Share your response";
+            }
             return "Ask about meetings, services, representatives, or local issues";
           },
           get isTextInputStep() {
+            if (this.soapboxMode) {
+              return this.soapboxStep === "conversation";
+            }
             return !this.draftMode || this.draftStep === "concern" || this.draftStep === "outcome";
+          },
+          get hasSoapboxResponse() {
+            return this.soapboxMessages.some((message) => message.role === "user");
           },
           submitCategory(category) {
             if (this.isLoading) {
@@ -397,6 +454,10 @@
             }
             if (category.id === "contact") {
               this.startDraftFlow();
+              return;
+            }
+            if (category.id === "soapbox") {
+              this.startSoapboxFlow();
               return;
             }
             this.submitQuestion(category.examplePrompt);
@@ -415,14 +476,32 @@
             this.draftMode = false;
             this.draftStep = "";
             this.draftContext = EMPTY_DRAFT_CONTEXT();
+            this.soapboxMode = false;
+            this.soapboxStep = "";
+            this.soapboxMessages = [];
+            this.soapboxSummary = "";
+            this.soapboxTopic = "";
             this.appendMessage("assistant", OPENING_MESSAGE, [], { showCategories: true });
             this.scrollThreadToBottom();
           },
           startDraftFlow() {
             this.draftMode = true;
+            this.soapboxMode = false;
             this.draftStep = "concern";
             this.draftContext = EMPTY_DRAFT_CONTEXT();
             this.appendMessage("assistant", "What's your concern?");
+            this.$nextTick(() => this.$refs.questionInput.focus());
+          },
+          startSoapboxFlow() {
+            this.draftMode = false;
+            this.draftStep = "";
+            this.draftContext = EMPTY_DRAFT_CONTEXT();
+            this.soapboxMode = true;
+            this.soapboxStep = "conversation";
+            this.soapboxMessages = [];
+            this.soapboxSummary = "";
+            this.soapboxTopic = "";
+            this.appendMessage("assistant", SOAPBOX_OPENING_PROMPT);
             this.$nextTick(() => this.$refs.questionInput.focus());
           },
           async submitQuestion(prefilledQuestion = null) {
@@ -436,6 +515,10 @@
             }
             if (this.draftMode && this.draftStep === "outcome") {
               this.submitDraftOutcome(question);
+              return;
+            }
+            if (this.soapboxMode && this.soapboxStep === "conversation") {
+              await this.submitSoapboxResponse(question);
               return;
             }
             if (this.draftMode) {
@@ -473,6 +556,130 @@
               this.appendMessage(
                 "system",
                 "CivicPulse could not answer that right now. Please try again shortly or verify details at an official town source."
+              );
+            } finally {
+              this.isLoading = false;
+              this.$nextTick(() => this.$refs.questionInput.focus());
+            }
+          },
+          async submitSoapboxResponse(responseText) {
+            this.appendMessage("user", responseText);
+            this.input = "";
+            this.soapboxMessages.push({ role: "user", content: responseText });
+
+            const userTurnCount = this.soapboxMessages.filter(
+              (message) => message.role === "user"
+            ).length;
+            if (userTurnCount >= SOAPBOX_MAX_TURNS) {
+              this.soapboxStep = "ready";
+              this.appendMessage("system", "Feel free to submit whenever you're ready.");
+              return;
+            }
+
+            this.isLoading = true;
+            const loadingId = this.appendMessage("system", "Listening…");
+
+            try {
+              const fetchResponse = await fetch("/soapbox/followup", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ messages: this.soapboxMessages }),
+              });
+
+              if (!fetchResponse.ok) {
+                throw new Error(`Request failed with status ${fetchResponse.status}`);
+              }
+
+              const payload = await fetchResponse.json();
+              this.soapboxMessages.push({ role: "assistant", content: payload.question });
+              this.replaceMessage(loadingId, {
+                role: "assistant",
+                text: payload.question,
+                sources: [],
+              });
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not ask a follow-up right now. You can still submit your response."
+              );
+            } finally {
+              this.isLoading = false;
+              this.$nextTick(() => this.$refs.questionInput.focus());
+            }
+          },
+          async submitSoapboxForReview() {
+            if (this.isLoading || !this.hasSoapboxResponse) {
+              return;
+            }
+
+            this.isLoading = true;
+            const loadingId = this.appendMessage("system", "Summarizing your response…");
+
+            try {
+              const response = await fetch("/soapbox/summarize", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ messages: this.soapboxMessages }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              const payload = await response.json();
+              this.soapboxSummary = payload.summary;
+              this.soapboxTopic = payload.topic;
+              this.soapboxStep = "review";
+              this.removeMessage(loadingId);
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not summarize that right now. Please try again shortly."
+              );
+            } finally {
+              this.isLoading = false;
+            }
+          },
+          async approveSoapboxSummary() {
+            const summary = this.soapboxSummary.trim();
+            if (!summary || this.isLoading) {
+              return;
+            }
+
+            this.isLoading = true;
+            const loadingId = this.appendMessage("system", "Submitting your response…");
+
+            try {
+              const response = await fetch("/soapbox/submit", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  summary,
+                  topic: this.soapboxTopic,
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              this.removeMessage(loadingId);
+              this.soapboxMode = false;
+              this.soapboxStep = "";
+              this.appendMessage("system", "Thanks. Your response has been submitted.");
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not submit that right now. Please try again shortly."
               );
             } finally {
               this.isLoading = false;

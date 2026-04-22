@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+import frontmatter
 import pytest
 from fastapi.testclient import TestClient
 
@@ -108,6 +109,141 @@ def read_draft_log_rows(vault: Path) -> list[sqlite3.Row]:
         con.close()
 
 
+def read_table_names(vault: Path) -> set[str]:
+    con = sqlite3.connect(vault / ".index.db")
+    try:
+        return {
+            row[0]
+            for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+    finally:
+        con.close()
+
+
+def read_query_log_rows(vault: Path) -> list[sqlite3.Row]:
+    con = sqlite3.connect(vault / ".index.db")
+    con.row_factory = sqlite3.Row
+    try:
+        return list(
+            con.execute(
+                """
+                SELECT id, document_type, timestamp
+                FROM query_log
+                ORDER BY id
+                """
+            )
+        )
+    finally:
+        con.close()
+
+
+def read_soapbox_log_rows(vault: Path) -> list[sqlite3.Row]:
+    con = sqlite3.connect(vault / ".index.db")
+    con.row_factory = sqlite3.Row
+    try:
+        return list(
+            con.execute(
+                """
+                SELECT id, summary, topic, timestamp
+                FROM soapbox_log
+                ORDER BY id
+                """
+            )
+        )
+    finally:
+        con.close()
+
+
+def test_privacy_policy_document_has_valid_frontmatter():
+    policy_path = Path("vault/privacy/privacy-policy.md")
+
+    assert policy_path.exists()
+    post = frontmatter.load(policy_path)
+    assert post.metadata["document_type"] == "privacy"
+    assert post.metadata["date"]
+    assert post.metadata["title"]
+    assert post.metadata["source_url"]
+    assert "what data CivicPulse collect" in post.content
+
+
+def test_privacy_policy_document_is_retrievable_by_bm25(tmp_path):
+    policy_dir = tmp_path / "privacy"
+    policy_dir.mkdir()
+    policy_text = Path("vault/privacy/privacy-policy.md").read_text()
+    (policy_dir / "privacy-policy.md").write_text(policy_text)
+    FTSIndexer(tmp_path).index()
+
+    results = FTSIndexer(tmp_path).query("what data CivicPulse collect", top_n=1)
+
+    assert len(results) == 1
+    assert results[0].document_type == "privacy"
+    assert results[0].title == "CivicPulse Privacy Policy"
+
+
+def test_post_query_can_cite_privacy_policy_document(tmp_path, monkeypatch):
+    policy_dir = tmp_path / "privacy"
+    policy_dir.mkdir()
+    policy_text = Path("vault/privacy/privacy-policy.md").read_text()
+    (policy_dir / "privacy-policy.md").write_text(policy_text)
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        tool_result={
+            "document_type": "privacy",
+            "date_from": None,
+            "date_to": None,
+        },
+        completion_text="CivicPulse collects anonymous question text and aggregate logs. [1]",
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "what data does CivicPulse collect?"})
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == [
+        {
+            "title": "CivicPulse Privacy Policy",
+            "url": "/privacy.html",
+            "document_type": "privacy",
+            "date": "2026-04-22",
+        }
+    ]
+
+
+def test_create_app_serves_privacy_page(tmp_path, monkeypatch):
+    with build_test_client(tmp_path, monkeypatch) as client:
+        response = client.get("/privacy.html")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "CivicPulse Privacy Policy" in response.text
+
+
+def test_frontend_privacy_disclaimer_links_to_privacy_page():
+    html = Path("frontend/index.html").read_text()
+
+    assert 'href="/privacy.html"' in html
+
+
+def test_frontend_includes_soapbox_card_and_separate_state():
+    html = Path("frontend/index.html").read_text()
+
+    assert "Share Your Voice" in html
+    assert "soapboxStep" in html
+    assert "startSoapboxFlow" in html
+
+
+def test_frontend_includes_soapbox_summary_review_flow():
+    html = Path("frontend/index.html").read_text()
+
+    assert "/soapbox/summarize" in html
+    assert "/soapbox/submit" in html
+    assert "soapboxSummary" in html
+    assert "Approve summary" in html
+    assert "textarea" in html
+
+
 def test_post_query_returns_grounded_answer_and_sources(tmp_path, monkeypatch):
     write_chunk(
         tmp_path,
@@ -147,6 +283,196 @@ def test_post_query_returns_grounded_answer_and_sources(tmp_path, monkeypatch):
     }
 
 
+def test_create_app_creates_anonymous_log_tables(tmp_path, monkeypatch):
+    with build_test_client(tmp_path, monkeypatch):
+        pass
+
+    table_names = read_table_names(tmp_path)
+    assert "query_log" in table_names
+    assert "soapbox_log" in table_names
+
+
+def test_post_query_logs_document_type_without_question_text(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The town board approved the zoning variance after public comment.",
+        source_url="https://www.townofbabylonny.gov/zoning",
+        document_type="meeting-minutes",
+        date="2026-02-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        tool_result={
+            "document_type": "meeting-minutes",
+            "date_from": None,
+            "date_to": None,
+        },
+        completion_text="The variance was approved. [1]",
+    )
+    question = "What happened to the secret zoning variance?"
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": question})
+
+    assert response.status_code == 200
+    rows = read_query_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["document_type"] == "meeting-minutes"
+    assert rows[0]["timestamp"]
+    assert set(rows[0].keys()) == {"id", "document_type", "timestamp"}
+    assert question not in str(dict(rows[0]))
+    assert len(provider.tool_calls) == 1
+
+
+def test_post_query_logs_null_document_type_when_metadata_filter_falls_back(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(completion_text="No matching content.")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "What is the ferry schedule?"})
+
+    assert response.status_code == 200
+    rows = read_query_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["document_type"] is None
+
+
+def test_post_soapbox_followup_returns_question_shape(tmp_path, monkeypatch):
+    provider = StubProvider(completion_text="What change would you like to see next?")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/soapbox/followup",
+            json={"messages": [{"role": "user", "content": "The park needs more lighting."}]},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"question": "What change would you like to see next?"}
+    assert provider.completion_calls[0]["messages"][0]["role"] == "system"
+    assert "non-leading" in provider.completion_calls[0]["messages"][0]["content"]
+
+
+def test_post_soapbox_followup_uses_soapbox_model_defaulting_to_civicpulse_model(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("CIVICPULSE_MODEL", "default-civic-model")
+    provider = StubProvider(completion_text="What would help residents feel heard?")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/soapbox/followup",
+            json={"messages": [{"role": "user", "content": "Meetings feel inaccessible."}]},
+        )
+
+    assert response.status_code == 200
+    assert provider.completion_calls[0]["model"] == "default-civic-model"
+
+
+def test_post_soapbox_followup_returns_400_when_turn_limit_exceeded(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("CIVICPULSE_SOAPBOX_MAX_TURNS", "1")
+
+    with build_test_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/soapbox/followup",
+            json={
+                "messages": [
+                    {"role": "user", "content": "First concern."},
+                    {"role": "assistant", "content": "Can you say more?"},
+                    {"role": "user", "content": "Second concern."},
+                ]
+            },
+        )
+
+    assert response.status_code == 400
+
+
+def test_post_soapbox_followup_returns_503_when_provider_raises_llm_error(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(completion_error=LLMError("upstream failure"))
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/soapbox/followup",
+            json={"messages": [{"role": "user", "content": "The town needs safer crossings."}]},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "CivicPulse could not generate an answer right now. Please try again shortly."
+    }
+
+
+def test_post_soapbox_summarize_returns_summary_and_topic(tmp_path, monkeypatch):
+    provider = StubProvider(
+        tool_result={
+            "summary": "A resident wants safer crossings near schools.",
+            "topic": "street safety",
+        }
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/soapbox/summarize",
+            json={"messages": [{"role": "user", "content": "Crosswalks feel unsafe."}]},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "summary": "A resident wants safer crossings near schools.",
+        "topic": "street safety",
+    }
+    assert provider.tool_calls[0]["tool_name"] == "summarize_soapbox"
+
+
+def test_post_soapbox_summarize_returns_503_when_provider_raises_llm_error(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(tool_error=LLMError("upstream failure"))
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/soapbox/summarize",
+            json={"messages": [{"role": "user", "content": "Crosswalks feel unsafe."}]},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "CivicPulse could not generate an answer right now. Please try again shortly."
+    }
+
+
+def test_post_soapbox_submit_logs_summary_topic_and_redacts_pii_without_llm_call(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider()
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/soapbox/submit",
+            json={
+                "summary": "A resident at (631) 555-1212 wants safer crossings.",
+                "topic": "street safety",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    rows = read_soapbox_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["summary"] == "A resident at [REDACTED] wants safer crossings."
+    assert rows[0]["topic"] == "street safety"
+    assert rows[0]["timestamp"]
+    assert "(631) 555-1212" not in rows[0]["summary"]
+    assert provider.tool_calls == []
+    assert provider.completion_calls == []
+
+
 def test_post_draft_suggest_recipient_returns_classification_and_logs_aggregate_record(
     tmp_path, monkeypatch
 ):
@@ -180,6 +506,32 @@ def test_post_draft_suggest_recipient_returns_classification_and_logs_aggregate_
         "timestamp": rows[0]["timestamp"],
     }
     assert "neighbor wants to build" not in rows[0]["abstracted_concern"]
+
+
+def test_post_draft_suggest_recipient_redacts_phone_number_before_logging(
+    tmp_path, monkeypatch
+):
+    provider = StubProvider(
+        tool_result={
+            "suggested_recipient": "Planning Board",
+            "topic": "zoning",
+            "abstracted_concern": "A resident at (631) 555-1212 is concerned about zoning.",
+        }
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/draft/suggest-recipient",
+            json={"concern": "My phone is (631) 555-1212 and I have a zoning concern."},
+        )
+
+    assert response.status_code == 200
+    rows = read_draft_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert "(631) 555-1212" not in rows[0]["abstracted_concern"]
+    assert rows[0]["abstracted_concern"] == (
+        "A resident at [REDACTED] is concerned about zoning."
+    )
 
 
 def test_post_draft_suggest_recipient_returns_503_when_provider_raises_llm_error(
@@ -286,14 +638,19 @@ def test_post_draft_generate_returns_503_when_provider_raises_llm_error(
 
 def test_post_draft_revise_returns_revised_letter(tmp_path, monkeypatch):
     provider = StubProvider(
-        completion_text="Dear Planning Board,\n\nPlease defer a vote until the traffic study is complete.\n\nSincerely,\nA Resident"
+        completion_text=(
+            "Dear Planning Board,\n\nPlease defer a vote until the traffic study is "
+            "complete.\n\nSincerely,\nA Resident"
+        )
     )
 
     with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
         response = client.post(
             "/draft/revise",
             json={
-                "current_letter": "Dear Planning Board,\n\nPlease review this matter.\n\nSincerely,\nA Resident",
+                "current_letter": (
+                    "Dear Planning Board,\n\nPlease review this matter.\n\nSincerely,\nA Resident"
+                ),
                 "revision_request": "Make it more specific and mention the traffic study.",
                 "concern": "I am concerned about traffic impacts.",
                 "recipient": "Planning Board",
@@ -302,7 +659,10 @@ def test_post_draft_revise_returns_revised_letter(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {
-        "letter": "Dear Planning Board,\n\nPlease defer a vote until the traffic study is complete.\n\nSincerely,\nA Resident"
+        "letter": (
+            "Dear Planning Board,\n\nPlease defer a vote until the traffic study is "
+            "complete.\n\nSincerely,\nA Resident"
+        )
     }
     assert response.json()["letter"] != (
         "Dear Planning Board,\n\nPlease review this matter.\n\nSincerely,\nA Resident"

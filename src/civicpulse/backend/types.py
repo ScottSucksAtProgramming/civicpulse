@@ -53,3 +53,25 @@ class ReviseRequest(BaseModel):
 
 class ReviseResponse(BaseModel):
     letter: str
+
+
+class SoapboxFollowupRequest(BaseModel):
+    messages: list[dict]
+
+
+class SoapboxFollowupResponse(BaseModel):
+    question: str
+
+
+class SoapboxSummarizeRequest(BaseModel):
+    messages: list[dict]
+
+
+class SoapboxSummary(BaseModel):
+    summary: str
+    topic: str
+
+
+class SoapboxSubmitRequest(BaseModel):
+    summary: str
+    topic: str

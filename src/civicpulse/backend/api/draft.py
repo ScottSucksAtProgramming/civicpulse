@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
+from civicpulse.backend.privacy import redact
 from civicpulse.backend.providers import LLMError
 from civicpulse.backend.types import (
     GenerateRequest,
@@ -43,7 +44,7 @@ class DraftLogger:
                 (
                     result.suggested_recipient,
                     result.topic,
-                    result.abstracted_concern,
+                    redact(result.abstracted_concern),
                     datetime.datetime.now(datetime.UTC).isoformat(),
                 ),
             )
