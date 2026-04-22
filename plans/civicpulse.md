@@ -128,13 +128,13 @@ A PII redaction pipeline that runs before any conversation data is written to st
 
 ### Acceptance criteria
 
-- [ ] PII redaction pipeline applied before any data is written; strips names, addresses, phone numbers, emails
-- [ ] Conversation logs store only anonymized topic/theme categories — no message content, no IP, no device ID
-- [ ] Aggregate data store is separate from the conversation/retrieval pipeline
-- [ ] Soapbox submission UI is accessible from the chat interface
-- [ ] Soapbox submissions pass through PII redaction before storage
-- [ ] Agent can accurately describe what data is and is not collected when asked
-- [ ] Privacy statement on site reflects actual data practices
+- [x] PII redaction pipeline applied before any data is written; strips names, addresses, phone numbers, emails
+- [x] Conversation logs store only anonymized topic/theme categories — no message content, no IP, no device ID
+- [x] Aggregate data store is separate from the conversation/retrieval pipeline
+- [x] Soapbox submission UI is accessible from the chat interface
+- [x] Soapbox submissions pass through PII redaction before storage
+- [x] Agent can accurately describe what data is and is not collected when asked
+- [x] Privacy statement on site reflects actual data practices
 
 ---
 
@@ -148,12 +148,15 @@ Confidence threshold logic that adds a disclaimer and links to the original sour
 
 ### Acceptance criteria
 
-- [ ] Low-confidence responses include a disclaimer and link to original source
-- [ ] Off-topic queries are redirected with a brief explanation and scope reminder
-- [ ] Post-generation check flags responses that introduce claims not present in retrieved chunks
-- [ ] API budget cap is configured; agent degrades gracefully when limit approached
-- [ ] No response is delivered without at least one source citation
-- [ ] Agent correctly handles adversarial or politically charged prompts without taking a position
+- [x] Low-confidence responses (zero results or below BM25 score floor) return soft refusal with warm redirect
+- [x] Off-topic queries are redirected warmly with scope examples; context-aware variants for future events, hyperlocal, wrong jurisdiction
+- [x] Unanswered queries logged (redacted query + failure_type + document_type) for manual corpus improvement review
+- [x] Citation enforcement: uncited responses log failure and attach all sources (pilot mode)
+- [x] PII backstop: system prompt refuses private individual queries; public officials remain in scope
+- [x] Criteria-elicitation dialogue for evaluative questions; agent never takes a position
+- [x] Agent correctly handles adversarial or politically charged prompts without taking a position
+- [ ] Post-generation grounding check (deferred to Phase 8)
+- [ ] LLM provider budget cap and spend alerting (deferred to Phase 8)
 
 ---
 

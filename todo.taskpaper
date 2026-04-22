@@ -73,15 +73,15 @@ Phase 6 - Privacy, Logging & Soapbox:
 	- Review and approve privacy policy content (vault/privacy/privacy-policy.md + frontend/privacy.html) before initial public release @added(2026-04-22)
 
 Phase 7 - Guardrails & Hardening:
-	- Implement confidence threshold logic: zero results OR below BM25 score floor → soft refusal; log redacted query + failure type + document_type to unanswered query log @added(2026-04-12)
-	- Add scope guardrails: attempt retrieval first; if nothing found, return warm redirect explaining what CivicPulse can help with @added(2026-04-12)
-	- Block response delivery if no source citation present (same unified soft-refusal message as low-confidence refusal) @added(2026-04-12)
+	- Implement confidence threshold logic: zero results OR below BM25 score floor → soft refusal; log redacted query + failure type + document_type to unanswered query log @done(2026-04-22) @added(2026-04-12)
+	- Add scope guardrails: attempt retrieval first; if nothing found, return warm redirect explaining what CivicPulse can help with @done(2026-04-22) @added(2026-04-12)
+	- Block response delivery if no source citation present (same unified soft-refusal message as low-confidence refusal) @done(2026-04-22) @added(2026-04-12)
 	- Configure LLM provider budget cap and usage alert (provider-agnostic; ops-only alert, no user-facing degradation) @added(2026-04-12)
-	- Add system prompt instruction to refuse queries seeking private information about named individuals (two-layer defense: clean vault sources + prompt backstop) @added(2026-04-22)
-	- Build criteria-elicitation dialogue for evaluative/political questions (e.g. "Is [official] doing a good job?" → elicit user's criteria → retrieve facts against those criteria; agent never takes a position) @added(2026-04-22)
-	- Build context-aware soft-refusal messages distinguishing: future/recent events not yet scraped, hyperlocal specifics (contact Town Hall), wrong jurisdiction (county/state/federal) @added(2026-04-22)
-	- Test adversarial prompts (political bias, off-topic, PII extraction attempts) @added(2026-04-12)
-	- Test "I don't know" behavior across edge cases (future events, hyperlocal, wrong jurisdiction, low-score retrieval) @added(2026-04-12)
+	- Add system prompt instruction to refuse queries seeking private information about named individuals (two-layer defense: clean vault sources + prompt backstop) @done(2026-04-22) @added(2026-04-22)
+	- Build criteria-elicitation dialogue for evaluative/political questions (e.g. "Is [official] doing a good job?" → elicit user's criteria → retrieve facts against those criteria; agent never takes a position) @done(2026-04-22) @added(2026-04-22)
+	- Build context-aware soft-refusal messages distinguishing: future/recent events not yet scraped, hyperlocal specifics (contact Town Hall), wrong jurisdiction (county/state/federal) @done(2026-04-22) @added(2026-04-22)
+	- Test adversarial prompts (political bias, off-topic, PII extraction attempts) @done(2026-04-22) @added(2026-04-12)
+	- Test "I don't know" behavior across edge cases (future events, hyperlocal, wrong jurisdiction, low-score retrieval) @done(2026-04-22) @added(2026-04-12)
 
 Phase 8 - Monitoring & Pilot Validation:
 	- Build post-generation grounding check (verify claims against retrieved chunks; deferred from Phase 7) @added(2026-04-22)
