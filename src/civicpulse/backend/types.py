@@ -15,11 +15,13 @@ class Source(BaseModel):
     document_type: str
     date: str | None = None
     content: str | None = None
+    score: float | None = None
 
 
 class QueryResponse(BaseModel):
     answer: str
     sources: list[Source]
+    clarifying: bool = False
 
 
 class SuggestRecipientRequest(BaseModel):

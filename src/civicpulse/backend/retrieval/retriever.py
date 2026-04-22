@@ -29,6 +29,7 @@ class Retriever:
                 document_type=result.document_type,
                 date=result.date,
                 content=result.content_preview,
+                score=result.score,
             )
             for result in results
         ]

@@ -123,6 +123,8 @@ def test_youtube_scraper_skips_video_ids_already_in_vault(tmp_path):
     assert len(list((tmp_path / "vault" / "meeting-video").rglob("*.md"))) == 1
 
 
-def test_youtube_scraper_requires_api_key_when_client_not_injected(tmp_path):
+def test_youtube_scraper_requires_api_key_when_client_not_injected(tmp_path, monkeypatch):
+    monkeypatch.delenv("CIVICPULSE_YOUTUBE_API_KEY", raising=False)
+
     with pytest.raises(RuntimeError, match="CIVICPULSE_YOUTUBE_API_KEY"):
         YouTubeScraper(vault_path=tmp_path / "vault", api_key=None)

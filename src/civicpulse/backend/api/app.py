@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from civicpulse.backend.api.draft import DraftLogger, build_draft_router
-from civicpulse.backend.api.loggers import QueryLogger, SoapboxLogger
+from civicpulse.backend.api.loggers import QueryLogger, SoapboxLogger, UnansweredLogger
 from civicpulse.backend.api.soapbox import build_soapbox_router, read_soapbox_max_turns
 from civicpulse.backend.providers import LLMError, get_provider
 from civicpulse.backend.retrieval.letter_generator import LetterGenerator
@@ -58,18 +58,22 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         query_logger = QueryLogger(vault_path / ".index.db")
         draft_logger = DraftLogger(vault_path / ".index.db")
         soapbox_logger = SoapboxLogger(vault_path / ".index.db")
+        unanswered_logger = UnansweredLogger(vault_path / ".index.db")
         query_logger.ensure_table()
         draft_logger.ensure_table()
         soapbox_logger.ensure_table()
+        unanswered_logger.ensure_table()
         pipeline = QueryPipeline(
             metadata_filter=MetadataFilter(provider=provider, model=filter_model),
             retriever=retriever,
             synthesizer=synthesizer,
+            unanswered_logger=unanswered_logger,
         )
         app.state.indexer = indexer
         app.state.provider = provider
         app.state.pipeline = pipeline
         app.state.query_logger = query_logger
+        app.state.unanswered_logger = unanswered_logger
         app.state.recipient_classifier = RecipientClassifier(provider=provider)
         app.state.draft_logger = draft_logger
         app.state.soapbox_logger = soapbox_logger
@@ -91,7 +95,7 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
     @app.post(
         "/query",
         response_model=QueryResponse,
-        response_model_exclude={"sources": {"__all__": {"content"}}},
+        response_model_exclude={"sources": {"__all__": {"content", "score"}}},
         response_model_exclude_none=True,
     )
     async def query(request: QueryRequest) -> QueryResponse:

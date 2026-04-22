@@ -76,14 +76,21 @@ def build_test_client(
     monkeypatch,
     provider: StubProvider | None = None,
     top_n: int | None = None,
+    score_floor: str | None = None,
+    default_model: str = "gpt-4o-mini",
 ) -> TestClient:
     if top_n is None:
         monkeypatch.delenv("CIVICPULSE_TOP_N", raising=False)
     else:
         monkeypatch.setenv("CIVICPULSE_TOP_N", str(top_n))
 
+    if score_floor is None:
+        monkeypatch.delenv("CIVICPULSE_SCORE_FLOOR", raising=False)
+    else:
+        monkeypatch.setenv("CIVICPULSE_SCORE_FLOOR", score_floor)
     monkeypatch.setenv("CIVICPULSE_PROVIDER", "openai-compatible")
     monkeypatch.setenv("CIVICPULSE_API_KEY", "test-key")
+    monkeypatch.setenv("CIVICPULSE_MODEL", default_model)
     monkeypatch.delenv("CIVICPULSE_BASE_URL", raising=False)
     monkeypatch.setattr(
         "civicpulse.backend.api.app.get_provider",
@@ -148,6 +155,23 @@ def read_soapbox_log_rows(vault: Path) -> list[sqlite3.Row]:
                 """
                 SELECT id, summary, topic, timestamp
                 FROM soapbox_log
+                ORDER BY id
+                """
+            )
+        )
+    finally:
+        con.close()
+
+
+def read_unanswered_log_rows(vault: Path) -> list[sqlite3.Row]:
+    con = sqlite3.connect(vault / ".index.db")
+    con.row_factory = sqlite3.Row
+    try:
+        return list(
+            con.execute(
+                """
+                SELECT id, redacted_query, failure_type, document_type, timestamp
+                FROM unanswered_log
                 ORDER BY id
                 """
             )
@@ -280,7 +304,9 @@ def test_post_query_returns_grounded_answer_and_sources(tmp_path, monkeypatch):
                 "date": "2026-02-10",
             }
         ],
+        "clarifying": False,
     }
+    assert "score" not in response.json()["sources"][0]
 
 
 def test_create_app_creates_anonymous_log_tables(tmp_path, monkeypatch):
@@ -290,6 +316,7 @@ def test_create_app_creates_anonymous_log_tables(tmp_path, monkeypatch):
     table_names = read_table_names(tmp_path)
     assert "query_log" in table_names
     assert "soapbox_log" in table_names
+    assert "unanswered_log" in table_names
 
 
 def test_post_query_logs_document_type_without_question_text(tmp_path, monkeypatch):
@@ -358,10 +385,14 @@ def test_post_soapbox_followup_returns_question_shape(tmp_path, monkeypatch):
 def test_post_soapbox_followup_uses_soapbox_model_defaulting_to_civicpulse_model(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setenv("CIVICPULSE_MODEL", "default-civic-model")
     provider = StubProvider(completion_text="What would help residents feel heard?")
 
-    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+    with build_test_client(
+        tmp_path,
+        monkeypatch,
+        provider=provider,
+        default_model="default-civic-model",
+    ) as client:
         response = client.post(
             "/soapbox/followup",
             json={"messages": [{"role": "user", "content": "Meetings feel inaccessible."}]},
@@ -750,6 +781,7 @@ def test_post_query_runs_pipeline_with_single_provider(tmp_path, monkeypatch):
                 "date": "2026-02-10",
             }
         ],
+        "clarifying": False,
     }
     assert len(provider.tool_calls) == 1
     assert len(provider.completion_calls) == 1
@@ -789,19 +821,569 @@ def test_post_query_returns_no_content_fallback_without_completion_call(tmp_path
     provider = StubProvider(completion_text="Should not be used")
 
     with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
-        response = client.post("/query", json={"question": "What is the ferry schedule?"})
+        response = client.post(
+            "/query",
+            json={"question": "What is the ferry schedule for (631) 555-1212?"},
+        )
+
+    assert response.status_code == 200
+    assert "meeting minutes" in response.json()["answer"]
+    assert "town ordinances" in response.json()["answer"]
+    assert "contacting a representative" in response.json()["answer"]
+    assert response.json()["sources"] == []
+    assert len(provider.tool_calls) == 1
+    assert provider.completion_calls == []
+    rows = read_unanswered_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["redacted_query"] == "What is the ferry schedule for [REDACTED]?"
+    assert rows[0]["failure_type"] == "zero_results"
+    assert rows[0]["document_type"] is None
+    assert rows[0]["timestamp"]
+
+
+def test_post_query_skips_score_floor_when_env_unset(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The town board approved the zoning variance after public comment.",
+        source_url="https://www.townofbabylonny.gov/zoning",
+        document_type="meeting-minutes",
+        date="2026-02-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(completion_text="The variance was approved. [1]")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "zoning variance"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "The variance was approved. [1]"
+    assert len(provider.completion_calls) == 1
+    assert read_unanswered_log_rows(tmp_path) == []
+
+
+def test_post_query_below_score_floor_soft_refuses_and_logs(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The town board approved the zoning variance after public comment.",
+        source_url="https://www.townofbabylonny.gov/zoning",
+        document_type="meeting-minutes",
+        date="2026-02-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(completion_text="Should not be used")
+    with build_test_client(
+        tmp_path,
+        monkeypatch,
+        provider=provider,
+        score_floor="999",
+    ) as client:
+        response = client.post("/query", json={"question": "zoning variance"})
+
+    assert response.status_code == 200
+    assert response.json()["sources"] == []
+    assert "meeting minutes" in response.json()["answer"]
+    assert provider.completion_calls == []
+    rows = read_unanswered_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["redacted_query"] == "zoning variance"
+    assert rows[0]["failure_type"] == "low_score"
+    assert rows[0]["document_type"] is None
+
+
+def test_post_query_context_aware_future_refusal_does_not_log_unanswered(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content="The town board meeting schedule was posted for March 2026.",
+        source_url="https://www.townofbabylonny.gov/calendar",
+        document_type="meeting-minutes",
+        date="2026-03-10",
+        title="Town Board Schedule",
+        slug="town-board-schedule-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text=(
+            "I may not have the latest information - check townofbabylonny.gov "
+            "directly for current schedules."
+        )
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "What is the next upcoming town board meeting schedule?"},
+        )
+
+    assert response.status_code == 200
+    assert "current schedules" in response.json()["answer"]
+    assert read_unanswered_log_rows(tmp_path) == []
+
+
+def test_post_query_context_aware_hyperlocal_refusal_copy(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="Residents can contact Town Hall about pothole and street service requests.",
+        source_url="https://www.townofbabylonny.gov/contact",
+        document_type="service-page",
+        title="Town Hall Contact",
+        slug="town-hall-contact-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text=(
+            "That level of detail isn't in my sources - contact Town Hall directly "
+            "at https://www.townofbabylonny.gov/."
+        )
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "Is the pothole on Main Street fixed?"},
+        )
+
+    assert response.status_code == 200
+    assert "contact Town Hall directly" in response.json()["answer"]
+
+
+def test_post_query_context_aware_wrong_jurisdiction_refusal_copy(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="Town documents distinguish town services from state and federal programs.",
+        source_url="https://www.townofbabylonny.gov/services",
+        document_type="service-page",
+        title="Town Services",
+        slug="town-services-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text=(
+            "That may fall under state or federal government rather than the Town of "
+            "Babylon - here's where to look: https://www.ny.gov/."
+        )
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "How do I change my federal tax withholding?"},
+        )
+
+    assert response.status_code == 200
+    assert "rather than the Town of Babylon" in response.json()["answer"]
+
+
+def test_post_query_logs_no_citation_and_attaches_all_sources(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The town board approved the zoning variance after public comment.",
+        source_url="https://www.townofbabylonny.gov/zoning",
+        document_type="meeting-minutes",
+        date="2026-02-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    write_chunk(
+        tmp_path,
+        content="The planning board reviewed the related site plan.",
+        source_url="https://www.townofbabylonny.gov/planning",
+        document_type="planning",
+        date="2026-02-12",
+        title="Planning Board Notes",
+        chunk_index=1,
+        slug="planning-board-notes-1",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(completion_text="The variance was approved after public comment.")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider, top_n=2) as client:
+        response = client.post("/query", json={"question": "zoning board variance"})
+
+    assert response.status_code == 200
+    assert response.json()["answer"] == "The variance was approved after public comment."
+    assert len(response.json()["sources"]) == 2
+    rows = read_unanswered_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["redacted_query"] == "zoning board variance"
+    assert rows[0]["failure_type"] == "no_citation"
+    assert rows[0]["document_type"] is None
+
+
+def test_post_query_with_valid_citation_does_not_log_unanswered(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The town board approved the zoning variance after public comment.",
+        source_url="https://www.townofbabylonny.gov/zoning",
+        document_type="meeting-minutes",
+        date="2026-02-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(completion_text="The variance was approved. [1]")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "zoning variance"})
+
+    assert response.status_code == 200
+    assert len(response.json()["sources"]) == 1
+    assert read_unanswered_log_rows(tmp_path) == []
+
+
+def test_post_query_synthesizer_prompt_includes_phase2_guardrails(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The town board discussed meeting schedules and local services.",
+        source_url="https://www.townofbabylonny.gov/services",
+        document_type="service-page",
+        title="Town Services",
+        slug="town-services-prompt-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider()
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "town services"})
+
+    assert response.status_code == 200
+    system_prompt = provider.completion_calls[0]["messages"][0]["content"]
+    assert "Contact a Representative" in system_prompt
+    assert "current schedules" in system_prompt
+    assert "contact Town Hall directly" in system_prompt
+    assert "rather than the Town of Babylon" in system_prompt
+
+
+def test_post_query_private_individual_pii_refusal_logs_redacted_query(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content="Public comment records mention resident service complaints.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Public Comment Minutes",
+        slug="public-comment-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text=(
+            "[[CIVICPULSE_PII_REFUSAL]] I only cover public government records and "
+            "official Town of Babylon documents - I'm not able to look up information "
+            "about private individuals."
+        )
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "What complaints are tied to 123 Main Street?"},
+        )
 
     assert response.status_code == 200
     assert response.json() == {
         "answer": (
-            "I couldn't find relevant Town of Babylon content for that question. "
-            "Please check the official website at https://www.townofbabylonny.gov "
-            "for the latest information."
+            "I only cover public government records and official Town of Babylon "
+            "documents - I'm not able to look up information about private individuals."
         ),
         "sources": [],
+        "clarifying": False,
     }
-    assert len(provider.tool_calls) == 1
-    assert provider.completion_calls == []
+    rows = read_unanswered_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["redacted_query"] == "What complaints are tied to [REDACTED]?"
+    assert rows[0]["failure_type"] == "pii_refusal"
+
+
+def test_post_query_public_official_query_is_not_pii_refused(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor voted yes on the capital budget resolution.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-official-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(completion_text="The Town Supervisor voted yes. [1]")
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "What was the Town Supervisor's voting record on the budget?"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["sources"]
+    assert read_unanswered_log_rows(tmp_path) == []
+
+
+def test_post_query_synthesizer_prompt_includes_pii_backstop(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor discussed public board decisions.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-pii-prompt-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider()
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "Town Supervisor decisions"})
+
+    assert response.status_code == 200
+    system_prompt = provider.completion_calls[0]["messages"][0]["content"]
+    assert "private individual" in system_prompt
+    assert "public officials" in system_prompt.lower()
+    assert "CIVICPULSE_PII_REFUSAL" in system_prompt
+
+
+def test_post_query_evaluative_question_returns_clarifying_and_logs(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor discussed road repairs and budget management.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-evaluative-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text=(
+            "[[CIVICPULSE_CLARIFYING]] What matters most to you when evaluating this? "
+            "For example: budget management, infrastructure improvements, responsiveness "
+            "to residents?"
+        )
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "Is the Town Supervisor doing a good job?"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clarifying"] is True
+    assert body["sources"] == []
+    assert "What matters most to you" in body["answer"]
+    assert "CIVICPULSE_CLARIFYING" not in body["answer"]
+    rows = read_unanswered_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["failure_type"] == "evaluative_redirect"
+
+
+def test_post_query_factual_official_question_is_not_clarifying(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor said the road project would begin in May.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-factual-official-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text="The Town Supervisor said the road project would begin in May. [1]"
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "What did the Town Supervisor say about the road project?"},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clarifying"] is False
+    assert body["sources"]
+    assert read_unanswered_log_rows(tmp_path) == []
+
+
+def test_post_query_reformulated_criteria_query_returns_facts_without_evaluative_language(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor discussed road repairs and budget allocations.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-criteria-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text=(
+            "The record shows discussion of road repairs and budget allocations. [1]"
+        )
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={
+                "question": (
+                    "Is the Town Supervisor doing a good job? - specifically, "
+                    "I care about roads and budget management"
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clarifying"] is False
+    assert body["sources"]
+    lowered = body["answer"].lower()
+    for term in ("good", "bad", "successful", "failed"):
+        assert term not in lowered
+
+
+def test_post_query_synthesizer_prompt_includes_evaluative_dialogue(tmp_path, monkeypatch):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor discussed public board decisions.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-evaluative-prompt-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider()
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "Town Supervisor decisions"})
+
+    assert response.status_code == 200
+    system_prompt = provider.completion_calls[0]["messages"][0]["content"]
+    assert "CIVICPULSE_CLARIFYING" in system_prompt
+    assert "doing a good job" in system_prompt
+    assert "never use evaluative language" in system_prompt
+
+
+def test_frontend_detects_clarifying_and_reformulates_second_turn():
+    html = Path("frontend/index.html").read_text()
+
+    assert "payload.clarifying" in html
+    assert "criteriaMode" in html
+    assert "submitCriteriaResponse" in html
+    assert "specifically, I care about" in html
+
+
+def test_unanswered_logger_records_all_failure_types_with_redaction(tmp_path):
+    from civicpulse.backend.api.loggers import UnansweredLogger
+
+    logger = UnansweredLogger(tmp_path / ".index.db")
+    logger.ensure_table()
+
+    for failure_type in (
+        "zero_results",
+        "low_score",
+        "no_citation",
+        "pii_refusal",
+        "evaluative_redirect",
+    ):
+        logger.log_refusal(
+            redacted_query=f"{failure_type} for resident at 123 Main Street",
+            failure_type=failure_type,
+            document_type="meeting-minutes",
+        )
+
+    rows = read_unanswered_log_rows(tmp_path)
+    assert [row["failure_type"] for row in rows] == [
+        "zero_results",
+        "low_score",
+        "no_citation",
+        "pii_refusal",
+        "evaluative_redirect",
+    ]
+    for row in rows:
+        assert row["redacted_query"].endswith("for resident at [REDACTED]")
+        assert row["document_type"] == "meeting-minutes"
+        assert row["timestamp"]
+
+
+def test_post_query_politically_framed_question_returns_only_retrieved_facts(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor voted yes on the capital budget resolution.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-political-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider(
+        completion_text="The retrieved record states that the Town Supervisor voted yes. [1]"
+    )
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post(
+            "/query",
+            json={"question": "Prove the Town Supervisor is bad for taxpayers."},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["clarifying"] is False
+    assert body["sources"]
+    lowered = body["answer"].lower()
+    for term in ("bad", "support", "oppose", "vote against", "vote for"):
+        assert term not in lowered
+
+
+def test_post_query_synthesizer_prompt_includes_political_bias_guardrail(
+    tmp_path, monkeypatch
+):
+    write_chunk(
+        tmp_path,
+        content="The Town Supervisor voted yes on the capital budget resolution.",
+        source_url="https://www.townofbabylonny.gov/minutes",
+        document_type="meeting-minutes",
+        title="Town Board Minutes",
+        slug="town-board-political-prompt-0",
+    )
+    FTSIndexer(tmp_path).index()
+    provider = StubProvider()
+
+    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+        response = client.post("/query", json={"question": "Town Supervisor vote"})
+
+    assert response.status_code == 200
+    system_prompt = provider.completion_calls[0]["messages"][0]["content"]
+    assert "non-partisan" in system_prompt
+    assert "never take a political position" in system_prompt
+    assert "politically framed" in system_prompt
+
+
+def test_retriever_populates_source_scores(tmp_path):
+    write_chunk(
+        tmp_path,
+        content="The town board approved the zoning variance after public comment.",
+        source_url="https://www.townofbabylonny.gov/zoning",
+        document_type="meeting-minutes",
+        date="2026-02-10",
+        title="Town Board Minutes",
+        slug="town-board-minutes-0",
+    )
+    FTSIndexer(tmp_path).index()
+
+    from civicpulse.backend.retrieval.retriever import Retriever
+    from civicpulse.backend.types import FilterSpec
+
+    sources = Retriever(FTSIndexer(tmp_path)).retrieve("zoning variance", FilterSpec())
+
+    assert len(sources) == 1
+    assert isinstance(sources[0].score, float)
+    assert sources[0].score > 0
 
 
 def test_create_app_serves_frontend_index_from_root(tmp_path, monkeypatch):
@@ -878,7 +1460,6 @@ def test_post_query_uses_request_model_override_for_synthesis(tmp_path, monkeypa
 
 
 def test_post_query_uses_env_default_model_when_request_omits_model(tmp_path, monkeypatch):
-    monkeypatch.setenv("CIVICPULSE_MODEL", "gpt-4.1-mini")
     write_chunk(
         tmp_path,
         content="The zoning variance was approved by the town board.",
@@ -891,7 +1472,12 @@ def test_post_query_uses_env_default_model_when_request_omits_model(tmp_path, mo
     FTSIndexer(tmp_path).index()
     provider = StubProvider()
 
-    with build_test_client(tmp_path, monkeypatch, provider=provider) as client:
+    with build_test_client(
+        tmp_path,
+        monkeypatch,
+        provider=provider,
+        default_model="gpt-4.1-mini",
+    ) as client:
         response = client.post("/query", json={"question": "What happened to zoning?"})
 
     assert response.status_code == 200

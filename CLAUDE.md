@@ -72,6 +72,8 @@ civicpulse/
   frontend/
     index.html
     privacy.html
+  scripts/
+    calibrate_score_floor.py
   docs/
     CivicPulse_PRD.md
     CivicPulse_Resources.md
@@ -89,6 +91,7 @@ civicpulse/
     phase4-expanded-corpus.md
     phase5-letter-drafting.md
     phase6-privacy-logging-soapbox.md
+    phase7-guardrails-hardening.md
   context/
     conventions.md
     lessons.md
@@ -179,9 +182,8 @@ After completing a task, log any corrections, preferences, patterns, or discover
 
 <!-- Claude maintains this as a quick-reference mirror of the most recent entries from context/lessons.md. -->
 
+- 2026-04-22 — Phase 7 guardrails design: confidence threshold = zero results OR below BM25 score floor → soft refusal; unanswered queries logged as redacted query + failure type + document_type for manual weekly review; scope guardrails via retrieval-first (not classifier) + warm redirect; citation failures use same unified soft-refusal message; budget cap is provider-agnostic (ops-only alert, no user-facing degradation); PII defense = clean vault sources + system prompt backstop; political/evaluative questions use criteria-elicitation dialogue (agent never takes position); context-aware soft-refusals distinguish future/recent events, hyperlocal specifics, wrong jurisdiction; post-generation grounding check deferred to Phase 8.
 - 2026-04-22 — Phase 6 Soapbox/Privacy design: redact() is regex-only + stateless (no LLM pass) in backend/privacy.py — applied at every DB write site; QueryPipeline.run() returns (QueryResponse, FilterSpec) so endpoint can log document_type to query_log without extra LLM call; Soapbox uses separate soapboxStep/soapboxMessages vars (not draftStep); /soapbox/submit makes no LLM call — pure storage; privacy policy is a vault doc (document_type: privacy) so RAG answers privacy questions naturally; /privacy.html is a StaticFiles-served static file, no new route. Plan at plans/phase6-privacy-logging-soapbox.md.
 - 2026-04-15 — Phase 5 letter drafting design: client-side state only (no sessions); 5-step frontend state machine (concern → suggest-recipient via Haiku → confirm/override → outcome → tone → generate via Sonnet); 3 backend endpoints (/draft/suggest-recipient, /draft/generate, /draft/revise); jsPDF CDN for PDF export; two delivery buttons (Download PDF / Submit Online); logging stores only third-person LLM rewrite + topic + recipient (raw concern never persisted). Plan at plans/phase5-letter-drafting.md.
 - 2026-04-14 — MetadataFilter system prompt needs: (1) today's date injected dynamically for relative date resolution; (2) per-type descriptions so LLM routes clerk-form vs clerk, meeting-video vs public-meeting correctly; (3) explicit instruction to leave dates null for vague references like "last month" — over-filtering on relative dates yields NO SOURCES.
 - 2026-04-14 — Phase 4 corpus: eCode360 via EcodeGateway API (customer BA0924, key pending from Town); interim = manual PDF + markitdown + § chunking. YouTube channel UCIYf6QoRXGaBgbqO24thUlg; youtube-transcript-api + Data API v3; 3-min/30-sec overlap windows. MetadataFilter taxonomy bug (minutes → meeting-minutes) is a prerequisite fix. New types: ordinance, meeting-video. PRD at GitHub issue #8.
-- 2026-04-14 — Phase 4 corpus implementation: keep source-specific frontmatter in `extra_metadata` on `RawDocument`/`VaultChunk`; `/243/` forms need depth 2 while the other Babylon website seeds stay at depth 1; eCode360 PDF imports infer `https://ecode360.com/{customer}#{section_number}` links, but exact section page IDs require the API-backed path.
-- 2026-04-14 — Phase 3 frontend: Alpine.js (CDN, no build step) + single `index.html` served via FastAPI `StaticFiles`. `StaticFiles` must use an absolute path from `__file__` — relative paths break under uvicorn `--factory`. Mount after API routes. Category cards are a JS data array (single source of truth). Opening message with inline cards seeded via `init()` for conversational feel. Card tap submits immediately; Enter submits, Shift+Enter newlines.

@@ -76,7 +76,7 @@ def build_draft_router() -> APIRouter:
     @router.post(
         "/generate",
         response_model=GenerateResponse,
-        response_model_exclude={"sources": {"__all__": {"content"}}},
+        response_model_exclude={"sources": {"__all__": {"content", "score"}}},
     )
     async def generate_letter(
         request: GenerateRequest,

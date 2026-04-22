@@ -35,6 +35,49 @@ class QueryLogger:
             con.commit()
 
 
+class UnansweredLogger:
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+
+    def ensure_table(self) -> None:
+        with sqlite3.connect(self._db_path) as con:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS unanswered_log (
+                    id INTEGER PRIMARY KEY,
+                    redacted_query TEXT,
+                    failure_type TEXT,
+                    document_type TEXT,
+                    timestamp TEXT NOT NULL
+                )
+                """
+            )
+            con.commit()
+
+    def log_refusal(
+        self,
+        redacted_query: str,
+        failure_type: str,
+        document_type: str | None,
+    ) -> None:
+        with sqlite3.connect(self._db_path) as con:
+            con.execute(
+                """
+                INSERT INTO unanswered_log (
+                    redacted_query, failure_type, document_type, timestamp
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    redact(redacted_query),
+                    failure_type,
+                    document_type,
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                ),
+            )
+            con.commit()
+
+
 class SoapboxLogger:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path

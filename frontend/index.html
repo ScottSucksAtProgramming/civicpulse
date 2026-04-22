@@ -411,6 +411,10 @@
           soapboxMessages: [],
           soapboxSummary: "",
           soapboxTopic: "",
+          criteriaMode: false,
+          criteriaContext: {
+            originalQuestion: "",
+          },
           init() {
             this.resetConversation();
           },
@@ -436,6 +440,9 @@
             }
             if (this.soapboxMode) {
               return "Share your response";
+            }
+            if (this.criteriaMode) {
+              return "Tell CivicPulse what criteria matter to you";
             }
             return "Ask about meetings, services, representatives, or local issues";
           },
@@ -481,12 +488,16 @@
             this.soapboxMessages = [];
             this.soapboxSummary = "";
             this.soapboxTopic = "";
+            this.criteriaMode = false;
+            this.criteriaContext = { originalQuestion: "" };
             this.appendMessage("assistant", OPENING_MESSAGE, [], { showCategories: true });
             this.scrollThreadToBottom();
           },
           startDraftFlow() {
             this.draftMode = true;
             this.soapboxMode = false;
+            this.criteriaMode = false;
+            this.criteriaContext = { originalQuestion: "" };
             this.draftStep = "concern";
             this.draftContext = EMPTY_DRAFT_CONTEXT();
             this.appendMessage("assistant", "What's your concern?");
@@ -496,6 +507,8 @@
             this.draftMode = false;
             this.draftStep = "";
             this.draftContext = EMPTY_DRAFT_CONTEXT();
+            this.criteriaMode = false;
+            this.criteriaContext = { originalQuestion: "" };
             this.soapboxMode = true;
             this.soapboxStep = "conversation";
             this.soapboxMessages = [];
@@ -521,6 +534,10 @@
               await this.submitSoapboxResponse(question);
               return;
             }
+            if (this.criteriaMode) {
+              await this.submitCriteriaResponse(question);
+              return;
+            }
             if (this.draftMode) {
               return;
             }
@@ -538,6 +555,52 @@
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ question }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              const payload = await response.json();
+              if (payload.clarifying) {
+                this.criteriaMode = true;
+                this.criteriaContext.originalQuestion = question;
+              }
+              this.replaceMessage(loadingId, {
+                role: "assistant",
+                text: payload.answer,
+                sources: payload.sources || [],
+              });
+              this.afterAssistantResponse();
+            } catch (error) {
+              this.removeMessage(loadingId);
+              this.appendMessage(
+                "system",
+                "CivicPulse could not answer that right now. Please try again shortly or verify details at an official town source."
+              );
+            } finally {
+              this.isLoading = false;
+              this.$nextTick(() => this.$refs.questionInput.focus());
+            }
+          },
+          async submitCriteriaResponse(criteriaText) {
+            const originalQuestion = this.criteriaContext.originalQuestion;
+            const reformulatedQuestion = `${originalQuestion} - specifically, I care about ${criteriaText}`;
+            this.criteriaMode = false;
+            this.criteriaContext = { originalQuestion: "" };
+            this.appendMessage("user", criteriaText);
+            this.input = "";
+            this.isLoading = true;
+
+            const loadingId = this.appendMessage("system", "Searching town records…");
+
+            try {
+              const response = await fetch("/query", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ question: reformulatedQuestion }),
               });
 
               if (!response.ok) {
