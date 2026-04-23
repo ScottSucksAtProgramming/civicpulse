@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Callable
 
 import frontmatter
-from googleapiclient.discovery import build
-from youtube_transcript_api import YouTubeTranscriptApi
 
 from civicpulse.scraper.indexer import FTSIndexer
 from civicpulse.scraper.models import VaultChunk
@@ -20,6 +18,8 @@ TITLE_PATTERN = re.compile(r"(town board|public hearing)", re.IGNORECASE)
 
 class YouTubeDataClient:
     def __init__(self, api_key: str) -> None:
+        from googleapiclient.discovery import build
+
         self._service = build("youtube", "v3", developerKey=api_key)
 
     def list_channel_videos(self, channel_id: str) -> list[dict[str, str]]:
@@ -175,4 +175,6 @@ class YouTubeScraper:
 
     @staticmethod
     def _fetch_transcript(video_id: str) -> list[dict]:
+        from youtube_transcript_api import YouTubeTranscriptApi
+
         return YouTubeTranscriptApi().fetch(video_id).to_raw_data()

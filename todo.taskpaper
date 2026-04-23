@@ -85,10 +85,10 @@ Phase 7 - Guardrails & Hardening:
 
 Phase 8 - Monitoring & Pilot Validation:
 	- Build post-generation grounding check (verify claims against retrieved chunks; deferred from Phase 7) @added(2026-04-22)
-	- Implement metrics tracking (conversation volume, hallucination flags, topic distribution, letter completions) @na @added(2026-04-12)
-	- Build scraper health monitor (alert on source failures or unexpected content) @added(2026-04-12)
-	- Add thumbs up/down feedback UI to chat @added(2026-04-12)
-	- Anonymize and store user feedback @added(2026-04-12)
-	- Build internal metrics report (dashboard or periodic export) @added(2026-04-12)
-	- Draft first community insights report template @added(2026-04-12)
+	- Implement metrics tracking (conversation volume, hallucination flags, topic distribution, letter completions) @done(2026-04-22) @added(2026-04-12)
+	- Build scraper health monitor (alert on source failures or unexpected content) @done(2026-04-22) @added(2026-04-12)
+	- Add thumbs up/down feedback UI to chat @done(2026-04-22) @added(2026-04-12)
+	- Anonymize and store user feedback @done(2026-04-22) @added(2026-04-12)
+	- Build internal metrics report (dashboard or periodic export) @done(2026-04-22) @added(2026-04-12)
+	- Draft first community insights report template @done(2026-04-22) @added(2026-04-12)
 	- Evaluate open-source model alternatives (Llama, Mistral) for cost reduction @added(2026-04-12)

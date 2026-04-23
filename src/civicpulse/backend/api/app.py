@@ -7,7 +7,13 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from civicpulse.backend.api.draft import DraftLogger, build_draft_router
-from civicpulse.backend.api.loggers import QueryLogger, SoapboxLogger, UnansweredLogger
+from civicpulse.backend.api.feedback import build_feedback_router
+from civicpulse.backend.api.loggers import (
+    FeedbackLogger,
+    QueryLogger,
+    SoapboxLogger,
+    UnansweredLogger,
+)
 from civicpulse.backend.api.soapbox import build_soapbox_router, read_soapbox_max_turns
 from civicpulse.backend.providers import LLMError, get_provider
 from civicpulse.backend.retrieval.letter_generator import LetterGenerator
@@ -59,10 +65,12 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         draft_logger = DraftLogger(vault_path / ".index.db")
         soapbox_logger = SoapboxLogger(vault_path / ".index.db")
         unanswered_logger = UnansweredLogger(vault_path / ".index.db")
+        feedback_logger = FeedbackLogger(vault_path / ".index.db")
         query_logger.ensure_table()
         draft_logger.ensure_table()
         soapbox_logger.ensure_table()
         unanswered_logger.ensure_table()
+        feedback_logger.ensure_table()
         pipeline = QueryPipeline(
             metadata_filter=MetadataFilter(provider=provider, model=filter_model),
             retriever=retriever,
@@ -74,6 +82,7 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
         app.state.pipeline = pipeline
         app.state.query_logger = query_logger
         app.state.unanswered_logger = unanswered_logger
+        app.state.feedback_logger = feedback_logger
         app.state.recipient_classifier = RecipientClassifier(provider=provider)
         app.state.draft_logger = draft_logger
         app.state.soapbox_logger = soapbox_logger
@@ -114,6 +123,7 @@ def create_app(vault_path: Path | None = None) -> FastAPI:
 
     app.include_router(build_draft_router())
     app.include_router(build_soapbox_router())
+    app.include_router(build_feedback_router())
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     return app

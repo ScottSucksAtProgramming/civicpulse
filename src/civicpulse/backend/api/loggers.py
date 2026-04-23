@@ -110,3 +110,87 @@ class SoapboxLogger:
                 ),
             )
             con.commit()
+
+
+class FeedbackLogger:
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+
+    def ensure_table(self) -> None:
+        with sqlite3.connect(self._db_path) as con:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS feedback_log (
+                    id INTEGER PRIMARY KEY,
+                    rating TEXT,
+                    redacted_comment TEXT,
+                    document_type TEXT,
+                    timestamp TEXT NOT NULL
+                )
+                """
+            )
+            con.commit()
+
+    def log_feedback(
+        self,
+        rating: str,
+        comment: str | None,
+        document_type: str | None,
+    ) -> None:
+        with sqlite3.connect(self._db_path) as con:
+            con.execute(
+                """
+                INSERT INTO feedback_log (
+                    rating, redacted_comment, document_type, timestamp
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    rating,
+                    redact(comment) if comment is not None else None,
+                    document_type,
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                ),
+            )
+            con.commit()
+
+
+class ScraperLogger:
+    def __init__(self, db_path: Path) -> None:
+        self._db_path = db_path
+
+    def ensure_table(self) -> None:
+        with sqlite3.connect(self._db_path) as con:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scraper_log (
+                    id INTEGER PRIMARY KEY,
+                    source_name TEXT,
+                    url TEXT,
+                    error_type TEXT,
+                    timestamp TEXT NOT NULL
+                )
+                """
+            )
+            con.commit()
+
+    def log_run(
+        self,
+        source_name: str,
+        url: str | None,
+        error_type: str | None,
+    ) -> None:
+        with sqlite3.connect(self._db_path) as con:
+            con.execute(
+                """
+                INSERT INTO scraper_log (source_name, url, error_type, timestamp)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    source_name,
+                    url,
+                    error_type,
+                    datetime.datetime.now(datetime.UTC).isoformat(),
+                ),
+            )
+            con.commit()

@@ -39,6 +39,8 @@ class GenerateRequest(BaseModel):
     outcome: str
     tone: str
     recipient: str
+    topic: str | None = None
+    abstracted_concern: str | None = None
 
 
 class GenerateResponse(BaseModel):

@@ -4,6 +4,7 @@ from pathlib import Path
 import click
 from dotenv import load_dotenv
 
+from civicpulse.backend.api.loggers import ScraperLogger
 from civicpulse.scraper.chunker import Chunker
 from civicpulse.scraper.importers.ecode360 import ECodeImporter, SectionChunker
 from civicpulse.scraper.indexer import FTSIndexer
@@ -18,29 +19,70 @@ load_dotenv()
 IMPORT_SOURCES = ("ecode360", "ecode360-api")
 
 
+def _scraper_url(scraper) -> str | None:
+    seed_urls = getattr(scraper, "seed_urls", None)
+    if seed_urls:
+        return seed_urls[0]
+    return None
+
+
+def _run_logged_scraper(scraper, scraper_logger: ScraperLogger):
+    source_name = scraper.__class__.__name__
+    url = _scraper_url(scraper)
+    try:
+        result = scraper.scrape_all()
+    except Exception as exc:
+        scraper_logger.log_run(source_name=source_name, url=url, error_type=type(exc).__name__)
+        raise
+    scraper_logger.log_run(source_name=source_name, url=url, error_type=None)
+    return result
+
+
 @click.command()
 @click.option("--vault", default=os.getenv("VAULT_PATH", "./vault"), show_default=True)
 def scrape(vault: str) -> None:
     """Scrape all Town of Babylon sources and populate the knowledge vault."""
     vault_path = Path(vault)
+    vault_path.mkdir(parents=True, exist_ok=True)
+    scraper_logger = ScraperLogger(vault_path / ".index.db")
+    scraper_logger.ensure_table()
     chunker = Chunker()
     writer = VaultWriter(vault_path)
     total_pages, total_chunks = 0, 0
+    first_error: Exception | None = None
 
     try:
         youtube_scraper = YouTubeScraper(vault_path=vault_path)
     except RuntimeError as exc:
+        scraper_logger.log_run(
+            source_name="YouTubeScraper",
+            url=None,
+            error_type=type(exc).__name__,
+        )
         raise click.ClickException(str(exc)) from exc
 
     for ScraperClass in (BabylonWebsiteScraper, AgendaCenterScraper):
-        docs = ScraperClass().scrape_all()
+        scraper = ScraperClass()
+        try:
+            docs = _run_logged_scraper(scraper, scraper_logger)
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+            continue
         total_pages += len(docs)
         for doc in docs:
             for chunk in chunker.chunk(doc):
                 writer.write(chunk)
                 total_chunks += 1
 
-    total_chunks += youtube_scraper.scrape_all()
+    try:
+        total_chunks += _run_logged_scraper(youtube_scraper, scraper_logger)
+    except Exception as exc:
+        if first_error is None:
+            first_error = exc
+
+    if first_error is not None:
+        raise first_error
 
     click.echo(f"Done. {total_pages} pages scraped → {total_chunks} chunks indexed.")
 

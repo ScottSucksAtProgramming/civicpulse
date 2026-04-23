@@ -170,9 +170,9 @@ An internal metrics layer tracking: conversation volume, hallucination rate (res
 
 ### Acceptance criteria
 
-- [ ] Metrics tracked: conversation volume, hallucination flags, topic distribution, letter completions
-- [ ] Internal dashboard or periodic report renders key pilot metrics
-- [ ] Scraper health monitor detects and logs failures for each data source
-- [ ] User feedback mechanism (thumbs up/down) is available in chat UI
-- [ ] Feedback is anonymized before storage
-- [ ] Team can generate a community insights report from aggregate topic data
+- [x] Metrics tracked: conversation volume, hallucination flags, topic distribution, letter completions
+- [x] Internal dashboard or periodic report renders key pilot metrics
+- [x] Scraper health monitor detects and logs failures for each data source
+- [x] User feedback mechanism (thumbs up/down) is available in chat UI
+- [x] Feedback is anonymized before storage
+- [x] Team can generate a community insights report from aggregate topic data

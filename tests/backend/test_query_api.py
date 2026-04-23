@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from civicpulse.backend.api.app import create_app
+from civicpulse.backend.api.draft import DraftLogger
+from civicpulse.backend.api.loggers import FeedbackLogger
 from civicpulse.backend.providers import LLMError
 from civicpulse.scraper.indexer import FTSIndexer
 from civicpulse.scraper.models import VaultChunk
@@ -106,7 +108,7 @@ def read_draft_log_rows(vault: Path) -> list[sqlite3.Row]:
         return list(
             con.execute(
                 """
-                SELECT recipient, topic, abstracted_concern, timestamp
+                SELECT recipient, topic, abstracted_concern, event_type, timestamp
                 FROM draft_log
                 ORDER BY rowid
                 """
@@ -172,6 +174,23 @@ def read_unanswered_log_rows(vault: Path) -> list[sqlite3.Row]:
                 """
                 SELECT id, redacted_query, failure_type, document_type, timestamp
                 FROM unanswered_log
+                ORDER BY id
+                """
+            )
+        )
+    finally:
+        con.close()
+
+
+def read_feedback_log_rows(vault: Path) -> list[sqlite3.Row]:
+    con = sqlite3.connect(vault / ".index.db")
+    con.row_factory = sqlite3.Row
+    try:
+        return list(
+            con.execute(
+                """
+                SELECT id, rating, redacted_comment, document_type, timestamp
+                FROM feedback_log
                 ORDER BY id
                 """
             )
@@ -268,6 +287,23 @@ def test_frontend_includes_soapbox_summary_review_flow():
     assert "textarea" in html
 
 
+def test_frontend_includes_feedback_controls_and_note():
+    html = Path("frontend/index.html").read_text()
+
+    assert 'class="feedback-controls"' in html
+    assert 'aria-label="Helpful response"' in html
+    assert 'aria-label="Not helpful response"' in html
+    assert "/feedback" in html
+    assert "sources[0]?.document_type ?? null" in html
+    assert "Your feedback helps improve future answers." in html
+
+
+def test_frontend_sends_topic_when_generating_letter():
+    html = Path("frontend/index.html").read_text()
+
+    assert "topic: this.draftContext.topic" in html
+
+
 def test_post_query_returns_grounded_answer_and_sources(tmp_path, monkeypatch):
     write_chunk(
         tmp_path,
@@ -317,6 +353,7 @@ def test_create_app_creates_anonymous_log_tables(tmp_path, monkeypatch):
     assert "query_log" in table_names
     assert "soapbox_log" in table_names
     assert "unanswered_log" in table_names
+    assert "feedback_log" in table_names
 
 
 def test_post_query_logs_document_type_without_question_text(tmp_path, monkeypatch):
@@ -504,6 +541,50 @@ def test_post_soapbox_submit_logs_summary_topic_and_redacts_pii_without_llm_call
     assert provider.completion_calls == []
 
 
+def test_feedback_logger_redacts_comment_before_insert(tmp_path):
+    logger = FeedbackLogger(tmp_path / ".index.db")
+    logger.ensure_table()
+
+    logger.log_feedback(
+        rating="down",
+        comment="Email me at resident@example.com or call (631) 555-1212.",
+        document_type="meeting-minutes",
+    )
+
+    rows = read_feedback_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["rating"] == "down"
+    assert rows[0]["redacted_comment"] == "Email me at [REDACTED] or call [REDACTED]."
+    assert rows[0]["document_type"] == "meeting-minutes"
+    assert rows[0]["timestamp"]
+
+
+def test_post_feedback_accepts_rating_and_optional_context(tmp_path, monkeypatch):
+    with build_test_client(tmp_path, monkeypatch) as client:
+        response = client.post(
+            "/feedback",
+            json={
+                "rating": "up",
+                "comment": None,
+                "document_type": "budget",
+            },
+        )
+
+    assert response.status_code == 204
+    rows = read_feedback_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["rating"] == "up"
+    assert rows[0]["redacted_comment"] is None
+    assert rows[0]["document_type"] == "budget"
+
+
+def test_post_feedback_rejects_invalid_rating(tmp_path, monkeypatch):
+    with build_test_client(tmp_path, monkeypatch) as client:
+        response = client.post("/feedback", json={"rating": "maybe"})
+
+    assert response.status_code == 422
+
+
 def test_post_draft_suggest_recipient_returns_classification_and_logs_aggregate_record(
     tmp_path, monkeypatch
 ):
@@ -534,6 +615,7 @@ def test_post_draft_suggest_recipient_returns_classification_and_logs_aggregate_
         "recipient": "Planning Board",
         "topic": "zoning",
         "abstracted_concern": "A resident is concerned about a proposed zoning change.",
+        "event_type": "suggestion",
         "timestamp": rows[0]["timestamp"],
     }
     assert "neighbor wants to build" not in rows[0]["abstracted_concern"]
@@ -563,6 +645,35 @@ def test_post_draft_suggest_recipient_redacts_phone_number_before_logging(
     assert rows[0]["abstracted_concern"] == (
         "A resident at [REDACTED] is concerned about zoning."
     )
+    assert rows[0]["event_type"] == "suggestion"
+
+
+def test_draft_logger_migrates_existing_rows_to_suggestion_event_type(tmp_path):
+    db_path = tmp_path / ".index.db"
+    with sqlite3.connect(db_path) as con:
+        con.execute(
+            """
+            CREATE TABLE draft_log (
+                recipient TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                abstracted_concern TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+            """
+        )
+        con.execute(
+            """
+            INSERT INTO draft_log (recipient, topic, abstracted_concern, timestamp)
+            VALUES ('Town Board', 'roads', 'A road concern.', '2026-04-22T00:00:00+00:00')
+            """
+        )
+        con.commit()
+
+    DraftLogger(db_path).ensure_table()
+
+    rows = read_draft_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["event_type"] == "suggestion"
 
 
 def test_post_draft_suggest_recipient_returns_503_when_provider_raises_llm_error(
@@ -605,6 +716,7 @@ def test_post_draft_generate_returns_letter_and_sources_when_retrieval_hits(
                 "outcome": "I want the board to reconsider it.",
                 "tone": "Formal",
                 "recipient": "Town Board",
+                "topic": "zoning",
             },
         )
 
@@ -619,6 +731,15 @@ def test_post_draft_generate_returns_letter_and_sources_when_retrieval_hits(
                 "date": "2026-03-10",
             }
         ],
+    }
+    rows = read_draft_log_rows(tmp_path)
+    assert len(rows) == 1
+    assert dict(rows[0]) == {
+        "recipient": "Town Board",
+        "topic": "zoning",
+        "abstracted_concern": "I am concerned about the zoning amendment.",
+        "event_type": "generation",
+        "timestamp": rows[0]["timestamp"],
     }
 
 

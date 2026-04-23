@@ -50,6 +50,55 @@
 
               <div class="message-text" x-text="message.text"></div>
 
+              <div class="feedback-controls" x-show="message.role === 'assistant'">
+                <div class="feedback-buttons">
+                  <button
+                    type="button"
+                    class="feedback-button"
+                    aria-label="Helpful response"
+                    title="Helpful response"
+                    @click="submitFeedback(message, 'up')"
+                    :disabled="message.feedbackStatus === 'submitted'"
+                  >
+                    👍
+                  </button>
+                  <button
+                    type="button"
+                    class="feedback-button"
+                    aria-label="Not helpful response"
+                    title="Not helpful response"
+                    @click="showNegativeFeedback(message)"
+                    :disabled="message.feedbackStatus === 'submitted'"
+                  >
+                    👎
+                  </button>
+                </div>
+                <div class="feedback-panel" x-show="message.feedbackOpen">
+                  <input
+                    type="text"
+                    x-model="message.feedbackComment"
+                    placeholder="Optional: what missed the mark?"
+                    :disabled="message.feedbackStatus === 'submitting'"
+                  />
+                  <button
+                    type="button"
+                    class="text-button"
+                    @click="submitFeedback(message, 'down', message.feedbackComment)"
+                    :disabled="message.feedbackStatus === 'submitting'"
+                  >
+                    Submit
+                  </button>
+                  <button
+                    type="button"
+                    class="text-button"
+                    @click="submitFeedback(message, 'down')"
+                    :disabled="message.feedbackStatus === 'submitting'"
+                  >
+                    Skip
+                  </button>
+                </div>
+              </div>
+
               <div class="inline-categories" x-show="message.showCategories">
                 <template x-for="category in categories" :key="category.id">
                   <button
@@ -283,6 +332,7 @@
 
       <footer class="app-footer">
         <a href="#privacy">Privacy &amp; Data Use</a>
+        <span>Your feedback helps improve future answers.</span>
       </footer>
     </div>
 
@@ -845,6 +895,8 @@
                   outcome: this.draftContext.outcome,
                   tone: this.draftContext.tone,
                   recipient: this.draftContext.confirmedRecipient,
+                  topic: this.draftContext.topic,
+                  abstracted_concern: this.draftContext.abstractedConcern,
                 }),
               });
 
@@ -1032,6 +1084,9 @@
               sources,
               timestamp: new Date().toISOString(),
               showCategories: false,
+              feedbackOpen: false,
+              feedbackComment: "",
+              feedbackStatus: "",
               ...extras,
             });
             this.scrollThreadToBottom();
@@ -1047,6 +1102,9 @@
                     sources: replacement.sources || [],
                     timestamp: new Date().toISOString(),
                     showCategories: false,
+                    feedbackOpen: false,
+                    feedbackComment: "",
+                    feedbackStatus: "",
                   }
                 : message
             );
@@ -1079,6 +1137,47 @@
           sourceToggleLabel(message) {
             const count = message.sources.length;
             return `${this.isSourcesExpanded(message.id) ? "Hide" : "Show"} sources (${count})`;
+          },
+          feedbackDocumentType(message) {
+            const sources = message.sources || [];
+            return sources[0]?.document_type ?? null;
+          },
+          showNegativeFeedback(message) {
+            if (message.feedbackStatus === "submitted") {
+              return;
+            }
+            message.feedbackOpen = true;
+          },
+          async submitFeedback(message, rating, comment = null) {
+            if (message.feedbackStatus === "submitted" || message.feedbackStatus === "submitting") {
+              return;
+            }
+            message.feedbackStatus = "submitting";
+
+            try {
+              const trimmedComment =
+                typeof comment === "string" && comment.trim() ? comment.trim() : null;
+              const response = await fetch("/feedback", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  rating,
+                  comment: trimmedComment,
+                  document_type: this.feedbackDocumentType(message),
+                }),
+              });
+
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+
+              message.feedbackStatus = "submitted";
+              message.feedbackOpen = false;
+            } catch (error) {
+              message.feedbackStatus = "";
+            }
           },
           async copyMessage(message) {
             const sourceBlock = message.sources.length

@@ -212,6 +212,53 @@ h1 {
   gap: 10px;
 }
 
+.feedback-controls {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.feedback-buttons,
+.feedback-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedback-button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.62;
+  line-height: 1;
+}
+
+.feedback-button:hover,
+.feedback-button:focus-visible {
+  border-color: var(--border);
+  background: rgba(13, 107, 99, 0.08);
+  opacity: 1;
+}
+
+.feedback-button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.feedback-panel input {
+  min-height: 38px;
+  min-width: min(260px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+}
+
 .revision-panel {
   display: grid;
   gap: 10px;
@@ -417,6 +464,9 @@ h1 {
 .app-footer {
   padding: 24px 4px 12px;
   color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
 }
 
 .sr-only {
